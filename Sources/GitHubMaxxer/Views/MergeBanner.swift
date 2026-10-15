@@ -38,7 +38,18 @@ final class MergeBanner {
     canvas.frame.size = Self.canvas
     panel.contentView = NSView()
     panel.contentView?.addSubview(canvas)
+    NotificationCenter.default.addObserver(
+      forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.logState("occlusion changed") }
+    }
     observe()
+  }
+
+  private func logState(_ moment: String) {
+    Logger.merges.log(
+      "Banner \(moment, privacy: .public): visible \(self.panel.occlusionState.contains(.visible)), ordered in \(self.panel.isVisible), on active space \(self.panel.isOnActiveSpace), screen \(self.panel.screen?.localizedName ?? "none", privacy: .public), app active \(NSApp.isActive), app hidden \(NSApp.isHidden), app occlusion visible \(NSApp.occlusionState.contains(.visible))"
+    )
   }
 
   static func placement(frame: CGRect, visible: CGRect) -> (panel: CGRect, canvas: CGPoint) {
@@ -89,10 +100,10 @@ final class MergeBanner {
     Logger.merges.log(
       "Showed banner on \(screen.localizedName, privacy: .public) at \(String(describing: self.panel.frame), privacy: .public)"
     )
+    logState("shown")
     Task {
       try? await Task.sleep(for: .seconds(Slam.impact))
-      Logger.merges.log(
-        "Banner on screen at impact: \(self.panel.occlusionState.contains(.visible))")
+      logState("at impact")
       try? await Task.sleep(for: .seconds(Self.lifetime - Slam.impact))
       if shown == banner.date { model.releaseBanner() }
     }
