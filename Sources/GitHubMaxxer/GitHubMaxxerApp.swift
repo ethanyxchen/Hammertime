@@ -111,6 +111,19 @@ private struct MenuBarView: View {
       }
     }
     Divider()
+    if !model.pullRequests.isEmpty {
+      Section("Recently Merged") {
+        ForEach(model.pullRequests.prefix(3)) { pull in
+          Link(destination: pull.url) {
+            Text(pull.title.count > 44 ? "\(pull.title.prefix(43))…" : pull.title)
+            Text(
+              "\(pull.repository.name) #\(String(pull.number)) · \(pull.mergedAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))"
+            )
+          }
+        }
+      }
+      Divider()
+    }
     Button("Open Hammertime") {
       openWindow(id: "main")
       NSApplication.shared.activate(ignoringOtherApps: true)
