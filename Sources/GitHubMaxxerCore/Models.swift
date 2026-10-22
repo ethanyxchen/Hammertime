@@ -95,8 +95,9 @@ public struct GitHubSnapshot: Codable, Sendable {
 
   public mutating func record(_ pulls: [MergedPullRequest], mergedIn interval: DateInterval) {
     let history = Activity.historyInterval(endingAt: interval.end).start
+    let refreshed = Set(pulls.map(\.id))
     pullRequests =
-      pulls + pullRequests.filter { $0.mergedAt < interval.start && $0.mergedAt >= history }
+      pulls + pullRequests.filter { !refreshed.contains($0.id) && $0.mergedAt >= history }
     fetchedAt = interval.end
   }
 }
