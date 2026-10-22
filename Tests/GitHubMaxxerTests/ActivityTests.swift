@@ -69,13 +69,13 @@ struct ActivityTests {
       stale.refreshInterval(endingAt: now).start == Activity.historyInterval(endingAt: now).start)
   }
 
-  @Test func recordReplacesTheRefreshedWindowAndKeepsEarlierHistory() {
+  @Test func recordNeverDropsAPullRequestTheRefreshOmits() {
     var snapshot = GitHubSnapshot(
       repositories: [],
       pullRequests: [
         pull("expired", "2026-01-01T00:00:00Z"),
         pull("kept", "2026-09-20T00:00:00Z"),
-        pull("reverted", "2026-09-30T11:30:00Z"),
+        pull("omitted", "2026-09-30T11:30:00Z"),
       ],
       fetchedAt: date("2026-09-30T11:59:00Z"))
     let interval = DateInterval(
@@ -83,7 +83,7 @@ struct ActivityTests {
 
     snapshot.record([pull("fresh", "2026-09-30T11:45:00Z")], mergedIn: interval)
 
-    #expect(snapshot.pullRequests.map(\.id) == ["fresh", "kept"])
+    #expect(snapshot.pullRequests.map(\.id) == ["fresh", "kept", "omitted"])
     #expect(snapshot.fetchedAt == interval.end)
   }
 
