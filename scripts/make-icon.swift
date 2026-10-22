@@ -178,25 +178,24 @@ func appIcon(_ hammer: Hammer) -> NSBitmapImageRep {
       NSColor.black.setFill()
       squircle.fill()
     }
-    NSGradient(
-      starting: NSColor(calibratedRed: 0.30, green: 0.31, blue: 0.32, alpha: 1),
-      ending: NSColor(calibratedRed: 0.11, green: 0.115, blue: 0.12, alpha: 1))!
-      .draw(in: squircle, angle: -90)
+    NSColor(srgbRed: 0x24 / 255, green: 0x27 / 255, blue: 0x5E / 255, alpha: 1).setFill()
+    squircle.fill()
     squircle.addClip()
 
     var noise = Noise(41)
     for y in stride(from: plate.minY, to: plate.maxY, by: 3) {
-      NSColor(white: noise.next() > 0.5 ? 1 : 0, alpha: 0.025 + noise.next() * 0.03).setFill()
+      NSColor(white: noise.next() > 0.5 ? 1 : 0, alpha: 0.0175 + noise.next() * 0.021).setFill()
       NSRect(x: plate.minX, y: y, width: plate.width, height: 1.5).fill()
     }
-    NSGradient(starting: .clear, ending: NSColor(white: 0, alpha: 0.35))!
-      .draw(in: plate, angle: -90)
 
     NSGraphicsContext.saveGraphicsState()
     NSAffineTransform(transform: AffineTransform(translationByX: 0, byY: -3)).concat()
-    cracks(from: impact, color: NSColor(white: 1, alpha: 0.16), width: 7)
+    cracks(from: impact, color: NSColor(white: 1, alpha: 0.14), width: 7)
     NSGraphicsContext.restoreGraphicsState()
-    cracks(from: impact, color: NSColor(white: 0.02, alpha: 0.92), width: 7)
+    cracks(
+      from: impact,
+      color: NSColor(srgbRed: 0x07 / 255, green: 0x08 / 255, blue: 0x1A / 255, alpha: 1),
+      width: 7)
     NSGraphicsContext.saveGraphicsState()
     NSBezierPath(ovalIn: NSRect(x: impact.x - 200, y: impact.y - 90, width: 400, height: 180))
       .addClip()
