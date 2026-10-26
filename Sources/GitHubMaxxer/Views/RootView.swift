@@ -60,6 +60,7 @@ struct RootView: View {
   @State private var renaming: String?
   @State private var newName = ""
   @State private var showsShortcuts = false
+  @AppStorage(LoginItem.offeredKey) private var hasOfferedLoginItem = false
 
   var body: some View {
     Group {
@@ -91,6 +92,22 @@ struct RootView: View {
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("The new name only appears in Hammertime.")
+    }
+    .alert(
+      "Open Hammertime at login?",
+      isPresented: Binding(
+        get: {
+          !model.isWelcoming && !model.isPreview && !hasOfferedLoginItem && !LoginItem.isEnabled
+        },
+        set: { if !$0 { hasOfferedLoginItem = true } })
+    ) {
+      Button("Open at Login") { LoginItem.setEnabled(true) }
+        .keyboardShortcut(.defaultAction)
+      Button("Not Now", role: .cancel) {}
+    } message: {
+      Text(
+        "Hammertime counts your merges from the menu bar while it runs. You can change this later in Targets & Accounts."
+      )
     }
     .onChange(of: model.activities) { _, activities in
       if case .activity(let filter) = model.destination, !activities.contains(filter) {

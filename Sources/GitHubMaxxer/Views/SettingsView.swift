@@ -7,6 +7,7 @@ struct SettingsView: View {
   @State private var removing: AccountConnection?
   @State private var removalError: String?
   @AppStorage(Soundtrack.mutedKey) private var isSlamSoundMuted = false
+  @State private var opensAtLogin = LoginItem.isEnabled
 
   var body: some View {
     ScrollView {
@@ -69,6 +70,22 @@ struct SettingsView: View {
             Toggle(
               "Sound",
               isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
+            )
+            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+          }
+        }
+        SettingsSection(
+          "Login", footer: "Start Hammertime in the menu bar when you log in to your Mac."
+        ) {
+          LabeledContent("Open at login") {
+            Toggle(
+              "Open at login",
+              isOn: Binding(
+                get: { opensAtLogin },
+                set: {
+                  LoginItem.setEnabled($0)
+                  opensAtLogin = LoginItem.isEnabled
+                })
             )
             .labelsHidden().toggleStyle(.switch).controlSize(.small)
           }
