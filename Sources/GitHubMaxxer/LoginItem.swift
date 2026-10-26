@@ -14,7 +14,11 @@ enum LoginItem {
         try SMAppService.mainApp.unregister()
       }
     } catch {
-      Logger.app.error("Login item could not be changed: \(error.localizedDescription)")
+      Logger.app.error(
+        "Login item could not be changed: \(error.localizedDescription, privacy: .public)")
+    }
+    if SMAppService.mainApp.status == .requiresApproval {
+      SMAppService.openSystemSettingsLoginItems()
     }
   }
 }

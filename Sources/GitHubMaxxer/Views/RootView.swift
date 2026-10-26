@@ -97,7 +97,7 @@ struct RootView: View {
       "Open Hammertime at login?",
       isPresented: Binding(
         get: {
-          !model.isWelcoming && !model.isPreview && !hasOfferedLoginItem && !LoginItem.isEnabled
+          !hasOfferedLoginItem && !model.isWelcoming && !model.isPreview && !LoginItem.isEnabled
         },
         set: { if !$0 { hasOfferedLoginItem = true } })
     ) {

@@ -7,7 +7,8 @@ struct SettingsView: View {
   @State private var removing: AccountConnection?
   @State private var removalError: String?
   @AppStorage(Soundtrack.mutedKey) private var isSlamSoundMuted = false
-  @State private var opensAtLogin = LoginItem.isEnabled
+  @Environment(\.appearsActive) private var appearsActive
+  @State private var opensAtLogin = false
 
   var body: some View {
     ScrollView {
@@ -86,6 +87,7 @@ struct SettingsView: View {
                 })
             )
             .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            .disabled(model.isPreview)
           }
         }
         SettingsSection("Updates") {
@@ -95,6 +97,7 @@ struct SettingsView: View {
       }
       .padding(20)
     }
+    .onChange(of: appearsActive, initial: true) { opensAtLogin = LoginItem.isEnabled }
     .confirmationDialog(
       "Disconnect \(removing?.label ?? "GitHub")?",
       isPresented: Binding(
