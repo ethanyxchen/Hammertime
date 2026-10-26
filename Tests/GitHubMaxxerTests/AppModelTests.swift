@@ -311,7 +311,7 @@ struct AppModelTests {
     #expect(model.sidebarOrganizations == ["acme", "beta"])
   }
 
-  @Test func organizationPreferencesForgetOrganizationsThatDisappear() throws {
+  @Test func organizationPreferencesOutliveOrganizationsThatDisappear() throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -333,14 +333,100 @@ struct AppModelTests {
     model.setDailyGoal(2, for: .personal)
 
     let reloaded = AppModel(stateURL: url, credentials: TestCredentials())
-    #expect(reloaded.organizationPreferences.pinned == ["acme"])
-    #expect(reloaded.organizationPreferences.names == ["acme": "Acme"])
+    #expect(reloaded.organizationPreferences == saved)
+  }
 
-    try reloaded.remove(connection.id)
+  @Test func syncCreatesTheGistFromLocalSettingsAndPushesChanges() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, connection, token) = try syncingModel(in: directory)
 
-    let empty = AppModel(stateURL: url, credentials: TestCredentials())
-    #expect(empty.organizationPreferences.pinned == ["acme"])
-    #expect(empty.organizationPreferences.names == ["acme": "Acme"])
+    model.setDailyGoal(3, for: .personal)
+    await model.syncSettings()
+
+    let created = try #require(GistProtocol.settings(for: token))
+    #expect(created.workspaces.personal.goals == Goals(daily: 3))
+    #expect(created.scopes == [connection.profile.id: connection.scope])
+
+    model.setDailyGoal(5, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 5))
+    #expect(GistProtocol.gists.values.count { $0.token == token } == 1)
+
+    GistProtocol.emptyFiles(for: token)
+    model.setDailyGoal(6, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 6))
+
+    GistProtocol.delete(for: token)
+    model.setDailyGoal(7, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 7))
+    #expect(model.errors.isEmpty)
+  }
+
+  @Test func syncReplacesAnUnreadableGistAndLeavesUnrelatedGistsAlone() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, _, token) = try syncingModel(in: directory)
+    let unrelated = GistProtocol.publish("notes", for: token, description: "My notes")
+    let unreadable = GistProtocol.publish("{\"goals\": 3}", for: token)
+
+    model.setDailyGoal(2, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.gists[unrelated]?.content == "notes")
+    #expect(GistProtocol.gists.count { $0.value.token == token } == 2)
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 2))
+    #expect(GistProtocol.gists[unreadable] != nil)
+    #expect(model.errors.isEmpty)
+  }
+
+  @Test func gistSettingsWinTheFirstSyncAndKeepWhatThisMacCannotSee() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, connection, token) = try syncingModel(in: directory)
+    let scope = RepositoryScope(allRepositories: false, owners: ["acme"])
+    let elsewhere = RepositoryScope(allRepositories: false, owners: ["elsewhere"])
+    var remote = SyncedSettings(
+      workspaces: Workspaces(
+        personal: Workspace(goals: Goals(daily: 4), colour: .plum),
+        organizations: ["elsewhere": Workspace(goals: Goals(daily: 7), colour: .umber)]),
+      organizations: OrganizationPreferences(pinned: ["elsewhere"], names: ["elsewhere": "Far"]),
+      scopes: [connection.profile.id: scope, "other-account": elsewhere])
+    GistProtocol.publish(remote, for: token)
+
+    await model.syncSettings()
+
+    #expect(model.goals(for: .personal) == Goals(daily: 4))
+    #expect(model.colour(for: .personal) == .plum)
+    #expect(model.connections[0].scope == scope)
+
+    model.setDailyGoal(6, for: .personal)
+    await model.syncSettings()
+
+    remote.workspaces.personal.goals = Goals(daily: 6)
+    #expect(GistProtocol.settings(for: token) == remote)
+
+    remote.workspaces.personal.goals = Goals(daily: 8)
+    GistProtocol.publish(remote, for: token)
+    await model.syncSettings()
+
+    #expect(model.goals(for: .personal) == Goals(daily: 8))
+    let reloaded = AppModel(
+      stateURL: directory.appending(path: "state.json"), credentials: TestCredentials())
+    #expect(reloaded.goals(for: .personal) == Goals(daily: 8))
+
+    GistProtocol.delete(for: token)
+    model.setDailyGoal(9, for: .personal)
+    await model.syncSettings()
+
+    remote.workspaces.personal.goals = Goals(daily: 9)
+    #expect(GistProtocol.settings(for: token) == remote)
+    #expect(model.errors.isEmpty)
   }
 
   @Test func goalsSurviveRelaunchAndStayInRange() throws {
@@ -562,6 +648,24 @@ struct AppModelTests {
   }
 }
 
+@MainActor
+private func syncingModel(in directory: URL) throws -> (
+  AppModel, AccountConnection, token: String
+) {
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let url = directory.appending(path: "state.json")
+  let connection = PreviewData.connections(now: .now)[0]
+  try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+  let token = UUID().uuidString
+  let store = TestCredentials()
+  try store.save(token, for: connection.id)
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [GistProtocol.self]
+  let model = AppModel(
+    stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+  return (model, connection, token)
+}
+
 private func mergedPullRequest(in repository: Repository) -> MergedPullRequest {
   MergedPullRequest(
     id: repository.id, title: "Ship", number: 1,
@@ -664,4 +768,125 @@ private final class MergedProtocol: URLProtocol, @unchecked Sendable {
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}
+}
+
+private final class GistProtocol: URLProtocol, @unchecked Sendable {
+  struct Stored {
+    let token: String
+    var description = SyncedSettings.description
+    var content: String?
+    var version: Int
+  }
+
+  private static let lock = NSLock()
+  nonisolated(unsafe) private static var stored: [String: Stored] = [:]
+  nonisolated(unsafe) private static var clock = 0
+
+  static var gists: [String: Stored] { lock.withLock { stored } }
+
+  static func settings(for token: String) -> SyncedSettings? {
+    let gist = gists.values.first {
+      $0.token == token && $0.description == SyncedSettings.description && $0.content != nil
+    }
+    return gist.flatMap {
+      try? JSONDecoder().decode(SyncedSettings.self, from: Data($0.content!.utf8))
+    }
+  }
+
+  static func publish(_ settings: SyncedSettings, for token: String) {
+    publish(String(decoding: try! JSONEncoder().encode(settings), as: UTF8.self), for: token)
+  }
+
+  @discardableResult
+  static func publish(
+    _ content: String, for token: String, description: String = SyncedSettings.description
+  ) -> String {
+    lock.withLock {
+      let id =
+        stored.first { $0.value.token == token && $0.value.description == description }?.key
+        ?? UUID().uuidString
+      clock += 1
+      stored[id] = Stored(
+        token: token, description: description, content: content, version: clock)
+      return id
+    }
+  }
+
+  static func emptyFiles(for token: String) {
+    lock.withLock {
+      for (id, gist) in stored where gist.token == token { stored[id]?.content = nil }
+    }
+  }
+
+  static func delete(for token: String) {
+    lock.withLock { stored = stored.filter { $0.value.token != token } }
+  }
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let token =
+      request.value(forHTTPHeaderField: "Authorization")?.split(separator: " ").last
+      .map(String.init) ?? ""
+    let path = request.url!.path()
+    let (status, body, etag): (Int, Any, String?) = Self.lock.withLock {
+      switch (request.httpMethod ?? "GET", path) {
+      case ("GET", "/gists"):
+        return (200, Self.stored.filter { $0.value.token == token }.map(Self.summary), nil)
+      case ("POST", "/gists"):
+        let id = UUID().uuidString
+        Self.clock += 1
+        Self.stored[id] = Stored(token: token, content: content(), version: Self.clock)
+        return (201, Self.json(id), nil)
+      case ("PATCH", _):
+        let id = String(path.dropFirst("/gists/".count))
+        Self.clock += 1
+        Self.stored[id]?.content = content()
+        Self.stored[id]?.version = Self.clock
+        return (200, Self.json(id), nil)
+      default:
+        let id = String(path.dropFirst("/gists/".count))
+        guard let gist = Self.stored[id] else { return (404, [:], nil) }
+        let etag = "\"\(gist.version)\""
+        if request.value(forHTTPHeaderField: "If-None-Match") == etag { return (304, [:], etag) }
+        return (200, Self.json(id), etag)
+      }
+    }
+    client?.urlProtocol(
+      self,
+      didReceive: HTTPURLResponse(
+        url: request.url!, statusCode: status, httpVersion: nil,
+        headerFields: etag.map { ["ETag": $0] })!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+
+  private func content() -> String {
+    let files = try! requestBody(request)["files"] as! [String: [String: String]]
+    return files[SyncedSettings.file]!["content"]!
+  }
+
+  private static func summary(_ gist: (key: String, value: Stored)) -> [String: Any] {
+    [
+      "id": gist.key, "description": gist.value.description,
+      "updated_at": timestamp(gist.value.version),
+      "files": gist.value.content == nil
+        ? [:] : [SyncedSettings.file: ["filename": SyncedSettings.file]],
+    ]
+  }
+
+  private static func json(_ id: String) -> [String: Any] {
+    let gist = stored[id]!
+    return [
+      "id": id, "updated_at": timestamp(gist.version),
+      "files": gist.content.map { [SyncedSettings.file: ["content": $0]] } ?? [:],
+    ]
+  }
+
+  private static func timestamp(_ version: Int) -> String {
+    ISO8601DateFormatter().string(
+      from: Date(timeIntervalSince1970: 1_700_000_000 + Double(version)))
+  }
 }
