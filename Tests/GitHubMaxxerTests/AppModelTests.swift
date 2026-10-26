@@ -372,6 +372,33 @@ struct AppModelTests {
     #expect(model.errors.isEmpty)
   }
 
+  @Test func syncReplacesAnUnreadableGistAndLeavesUnrelatedGistsAlone() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "state.json")
+    let connection = PreviewData.connections(now: .now)[0]
+    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+    let token = UUID().uuidString
+    let store = TestCredentials()
+    try store.save(token, for: connection.id)
+    let unrelated = GistProtocol.publish("notes", for: token, description: "My notes")
+    let unreadable = GistProtocol.publish("{\"goals\": 3}", for: token)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [GistProtocol.self]
+    let model = AppModel(
+      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+
+    model.setDailyGoal(2, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.gists[unrelated]?.content == "notes")
+    #expect(GistProtocol.gists.count { $0.value.token == token } == 2)
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 2))
+    #expect(GistProtocol.gists[unreadable] != nil)
+    #expect(model.errors.isEmpty)
+  }
+
   @Test func gistSettingsWinTheFirstSyncAndKeepWhatThisMacCannotSee() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -415,6 +442,13 @@ struct AppModelTests {
     #expect(model.goals(for: .personal) == Goals(daily: 8))
     let reloaded = AppModel(stateURL: url, credentials: TestCredentials())
     #expect(reloaded.goals(for: .personal) == Goals(daily: 8))
+
+    GistProtocol.delete(for: token)
+    model.setDailyGoal(9, for: .personal)
+    await model.syncSettings()
+
+    remote.workspaces.personal.goals = Goals(daily: 9)
+    #expect(GistProtocol.settings(for: token) == remote)
     #expect(model.errors.isEmpty)
   }
 
@@ -744,6 +778,7 @@ private final class MergedProtocol: URLProtocol, @unchecked Sendable {
 private final class GistProtocol: URLProtocol, @unchecked Sendable {
   struct Stored {
     let token: String
+    var description = SyncedSettings.description
     var content: String
     var version: Int
   }
@@ -755,17 +790,30 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
   static var gists: [String: Stored] { lock.withLock { stored } }
 
   static func settings(for token: String) -> SyncedSettings? {
-    gists.values.first { $0.token == token }.flatMap {
+    let gist = gists.values.first {
+      $0.token == token && $0.description == SyncedSettings.description
+    }
+    return gist.flatMap {
       try? JSONDecoder().decode(SyncedSettings.self, from: Data($0.content.utf8))
     }
   }
 
   static func publish(_ settings: SyncedSettings, for token: String) {
-    let content = String(decoding: try! JSONEncoder().encode(settings), as: UTF8.self)
+    publish(String(decoding: try! JSONEncoder().encode(settings), as: UTF8.self), for: token)
+  }
+
+  @discardableResult
+  static func publish(
+    _ content: String, for token: String, description: String = SyncedSettings.description
+  ) -> String {
     lock.withLock {
-      let id = stored.first { $0.value.token == token }?.key ?? UUID().uuidString
+      let id =
+        stored.first { $0.value.token == token && $0.value.description == description }?.key
+        ?? UUID().uuidString
       clock += 1
-      stored[id] = Stored(token: token, content: content, version: clock)
+      stored[id] = Stored(
+        token: token, description: description, content: content, version: clock)
+      return id
     }
   }
 
@@ -776,7 +824,8 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
-    let token = request.value(forHTTPHeaderField: "Authorization")?.split(separator: " ").last
+    let token =
+      request.value(forHTTPHeaderField: "Authorization")?.split(separator: " ").last
       .map(String.init) ?? ""
     let path = request.url!.path()
     let (status, body, etag): (Int, Any, String?) = Self.lock.withLock {
@@ -820,7 +869,8 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
 
   private static func summary(_ gist: (key: String, value: Stored)) -> [String: Any] {
     [
-      "id": gist.key, "updated_at": timestamp(gist.value.version),
+      "id": gist.key, "description": gist.value.description,
+      "updated_at": timestamp(gist.value.version),
       "files": [SyncedSettings.file: ["filename": SyncedSettings.file]],
     ]
   }
@@ -834,6 +884,7 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
   }
 
   private static func timestamp(_ version: Int) -> String {
-    ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: 1_700_000_000 + Double(version)))
+    ISO8601DateFormatter().string(
+      from: Date(timeIntervalSince1970: 1_700_000_000 + Double(version)))
   }
 }

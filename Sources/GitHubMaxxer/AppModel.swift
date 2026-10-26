@@ -96,6 +96,7 @@ struct Workspaces: Codable, Equatable {
 
 struct SyncedSettings: Codable, Equatable {
   static let file = "hammertime.json"
+  static let description = "Hammertime settings"
   var workspaces: Workspaces
   var organizations: OrganizationPreferences
   var scopes: [String: RepositoryScope]
@@ -568,18 +569,24 @@ final class AppModel {
   }
 
   private func exchangeSettings() async {
-    guard let primary = connections.first, let token = try? credentials.read(for: primary.id)
-    else { return }
+    guard let primary = connections.first else {
+      syncError = nil
+      return
+    }
+    guard let token = try? credentials.read(for: primary.id) else { return }
     let client = GitHubClient(token: token, session: session)
+    let scopes = remoteSettings?.scopes ?? [:]
+    let before = localSettings(keeping: [:])
     do {
-      var gist = try await settingsGist(client, for: primary.id)
+      var gist = try await settingsGist(client, for: primary.id, keeping: scopes)
       guard connections.first?.id == primary.id else { return }
-      let settings = try SyncedSettings(gist)
-      if synced.map({ $0.gist != gist.id || gist.updatedAt > $0.updatedAt }) ?? true {
+      let settings = try? SyncedSettings(gist)
+      let isNewer = synced.map { $0.gist != gist.id || gist.updatedAt > $0.updatedAt } ?? true
+      if let settings, isNewer, localSettings(keeping: [:]) == before {
         apply(settings)
       }
       synced = SyncPoint(gist)
-      let local = localSettings(keeping: settings.scopes)
+      let local = localSettings(keeping: settings?.scopes ?? scopes)
       if local != settings {
         gist = try await client.updateGist(
           gist.id, file: SyncedSettings.file, content: try local.content())
@@ -588,7 +595,7 @@ final class AppModel {
       remote = (primary.id, gist)
       syncError = nil
       save()
-    } catch GitHubError.http(404) {
+    } catch GitHubError.http(404), GitHubError.forbidden {
       syncError =
         "Settings sync needs gist access. Run gh auth refresh -s gist, then reconnect the account."
     } catch {
@@ -596,17 +603,23 @@ final class AppModel {
     }
   }
 
-  private func settingsGist(_ client: GitHubClient, for account: UUID) async throws -> Gist {
+  private func settingsGist(
+    _ client: GitHubClient, for account: UUID, keeping scopes: [String: RepositoryScope]
+  ) async throws -> Gist {
     if let known = remote?.account == account ? remote?.gist : nil {
       do {
         return try await client.gist(known.id, file: SyncedSettings.file, ifNoneMatch: known.etag)
           ?? known
       } catch GitHubError.http(404) {}
     }
-    if let found = try await client.gist(containing: SyncedSettings.file) { return found }
+    if let found = try await client.gist(
+      named: SyncedSettings.file, description: SyncedSettings.description)
+    {
+      return found
+    }
     return try await client.createGist(
-      file: SyncedSettings.file, content: try localSettings(keeping: [:]).content(),
-      description: "Hammertime settings")
+      file: SyncedSettings.file, content: try localSettings(keeping: scopes).content(),
+      description: SyncedSettings.description)
   }
 
   private func apply(_ settings: SyncedSettings) {

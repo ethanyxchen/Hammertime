@@ -98,12 +98,13 @@ public struct GitHubClient: Sendable {
     return result
   }
 
-  public func gist(containing file: String) async throws -> Gist? {
+  public func gist(named file: String, description: String) async throws -> Gist? {
     var page = 1
     while true {
       let (data, _) = try await send("gists?per_page=100&page=\(page)")
       let gists = try Self.decoder.decode([GistResponse].self, from: data)
-      if let match = gists.first(where: { $0.files[file] != nil }) {
+      let match = gists.first { $0.files[file] != nil && $0.description == description }
+      if let match {
         return try await gist(match.id, file: file)
       }
       guard gists.count == 100 else { return nil }
@@ -117,22 +118,22 @@ public struct GitHubClient: Sendable {
     let (data, response) = try await send(
       "gists/\(id)", headers: etag.map { ["If-None-Match": $0] } ?? [:])
     guard response.statusCode != 304 else { return nil }
-    return try Gist(data, file: file, etag: response.value(forHTTPHeaderField: "ETag"))
+    return try Gist(data, response, file: file)
   }
 
-  public func createGist(file: String, content: String, description: String) async throws -> Gist
-  {
+  public func createGist(file: String, content: String, description: String) async throws -> Gist {
     let body = GistRequest(
       description: description, public: false, files: [file: .init(content: content)])
-    let (data, _) = try await send("gists", method: "POST", body: JSONEncoder().encode(body))
-    return try Gist(data, file: file, etag: nil)
+    let (data, response) = try await send(
+      "gists", method: "POST", body: JSONEncoder().encode(body))
+    return try Gist(data, response, file: file)
   }
 
   public func updateGist(_ id: String, file: String, content: String) async throws -> Gist {
     let body = GistRequest(files: [file: .init(content: content)])
-    let (data, _) = try await send(
+    let (data, response) = try await send(
       "gists/\(id)", method: "PATCH", body: JSONEncoder().encode(body))
-    return try Gist(data, file: file, etag: nil)
+    return try Gist(data, response, file: file)
   }
 
   fileprivate static var decoder: JSONDecoder {
@@ -192,13 +193,13 @@ public struct Gist: Sendable, Equatable {
   public let updatedAt: Date
   public let etag: String?
 
-  init(_ data: Data, file: String, etag: String?) throws {
-    let response = try GitHubClient.decoder.decode(GistResponse.self, from: data)
-    guard let content = response.files[file]?.content else { throw GitHubError.invalidResponse }
-    self.id = response.id
+  init(_ data: Data, _ response: HTTPURLResponse, file: String) throws {
+    let gist = try GitHubClient.decoder.decode(GistResponse.self, from: data)
+    guard let content = gist.files[file]?.content else { throw GitHubError.invalidResponse }
+    self.id = gist.id
     self.content = content
-    self.updatedAt = response.updatedAt
-    self.etag = etag
+    self.updatedAt = gist.updatedAt
+    self.etag = response.value(forHTTPHeaderField: "ETag")
   }
 }
 
@@ -275,11 +276,12 @@ private struct GistRequest: Encodable {
 }
 private struct GistResponse: Decodable {
   let id: String
+  let description: String?
   let updatedAt: Date
   let files: [String: File]
   struct File: Decodable { let content: String? }
   enum CodingKeys: String, CodingKey {
-    case id, files
+    case id, description, files
     case updatedAt = "updated_at"
   }
 }
