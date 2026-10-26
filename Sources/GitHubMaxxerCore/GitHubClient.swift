@@ -187,7 +187,7 @@ public struct GitHubClient: Sendable {
   }
 }
 
-public struct Gist: Sendable, Equatable {
+public struct Gist: Codable, Sendable, Equatable {
   public let id: String
   public let content: String
   public let updatedAt: Date

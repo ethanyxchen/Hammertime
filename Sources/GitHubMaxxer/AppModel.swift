@@ -114,22 +114,16 @@ extension SyncedSettings {
   }
 }
 
-private struct SyncPoint: Codable {
-  let gist: String
-  let updatedAt: Date
-}
-
-extension SyncPoint {
-  init(_ gist: Gist) {
-    self.init(gist: gist.id, updatedAt: gist.updatedAt)
-  }
+private struct SyncedGist: Codable {
+  let account: UUID
+  let gist: Gist
 }
 
 private struct SavedState: Codable {
   var workspaces = Workspaces()
   var connections: [AccountConnection] = []
   var organizations = OrganizationPreferences()
-  var synced: SyncPoint?
+  var synced: SyncedGist?
 }
 
 extension SavedState {
@@ -140,7 +134,7 @@ extension SavedState {
     organizations =
       try container.decodeIfPresent(OrganizationPreferences.self, forKey: .organizations)
       ?? OrganizationPreferences()
-    synced = try container.decodeIfPresent(SyncPoint.self, forKey: .synced)
+    synced = try container.decodeIfPresent(SyncedGist.self, forKey: .synced)
   }
 }
 
@@ -165,8 +159,7 @@ final class AppModel {
   private let session: URLSession
   private let stateURL: URL
   private var refreshTask: Task<Void, Never>?
-  private var synced: SyncPoint?
-  private var remote: (account: UUID, gist: Gist)?
+  private var synced: SyncedGist?
   private var syncTask: Task<Void, Never>?
   private var syncPending = false
 
@@ -559,7 +552,7 @@ final class AppModel {
   }
 
   private var remoteSettings: SyncedSettings? {
-    remote.flatMap { try? SyncedSettings($0.gist) }
+    synced.flatMap { try? SyncedSettings($0.gist) }
   }
 
   private func localSettings(keeping scopes: [String: RepositoryScope]) -> SyncedSettings {
@@ -575,38 +568,32 @@ final class AppModel {
     }
     guard let token = try? credentials.read(for: primary.id) else { return }
     let client = GitHubClient(token: token, session: session)
+    let known = synced?.account == primary.id ? synced?.gist : nil
     let scopes = remoteSettings?.scopes ?? [:]
-    let before = localSettings(keeping: [:])
     do {
-      var gist = try await settingsGist(client, for: primary.id, keeping: scopes)
+      let gist = try await settingsGist(client, known: known, keeping: scopes)
       guard connections.first?.id == primary.id else { return }
       let settings = try? SyncedSettings(gist)
-      let isNewer = synced.map { $0.gist != gist.id || gist.updatedAt > $0.updatedAt } ?? true
-      if let settings, isNewer, localSettings(keeping: [:]) == before {
-        apply(settings)
-      }
-      synced = SyncPoint(gist)
+      let isNewer = known.map { $0.id != gist.id || gist.updatedAt > $0.updatedAt } ?? true
+      if let settings, isNewer { apply(settings) }
+      synced = SyncedGist(account: primary.id, gist: gist)
       let local = localSettings(keeping: settings?.scopes ?? scopes)
       if local != settings {
-        gist = try await client.updateGist(
+        let updated = try await client.updateGist(
           gist.id, file: SyncedSettings.file, content: try local.content())
-        synced = SyncPoint(gist)
+        synced = SyncedGist(account: primary.id, gist: updated)
       }
-      remote = (primary.id, gist)
       syncError = nil
       save()
-    } catch GitHubError.http(404), GitHubError.forbidden {
-      syncError =
-        "Settings sync needs gist access. Run gh auth refresh -s gist, then reconnect the account."
     } catch {
       syncError = "Settings could not sync with GitHub. \(error.localizedDescription)"
     }
   }
 
   private func settingsGist(
-    _ client: GitHubClient, for account: UUID, keeping scopes: [String: RepositoryScope]
+    _ client: GitHubClient, known: Gist?, keeping scopes: [String: RepositoryScope]
   ) async throws -> Gist {
-    if let known = remote?.account == account ? remote?.gist : nil {
+    if let known {
       do {
         return try await client.gist(known.id, file: SyncedSettings.file, ifNoneMatch: known.etag)
           ?? known
@@ -617,9 +604,13 @@ final class AppModel {
     {
       return found
     }
-    return try await client.createGist(
-      file: SyncedSettings.file, content: try localSettings(keeping: scopes).content(),
-      description: SyncedSettings.description)
+    do {
+      return try await client.createGist(
+        file: SyncedSettings.file, content: try localSettings(keeping: scopes).content(),
+        description: SyncedSettings.description)
+    } catch GitHubError.http(404), GitHubError.forbidden {
+      throw SyncError.gistAccess
+    }
   }
 
   private func apply(_ settings: SyncedSettings) {
@@ -654,6 +645,13 @@ final class AppModel {
     } catch {
       storageError = "Changes could not be saved. \(error.localizedDescription)"
     }
+  }
+}
+
+private enum SyncError: LocalizedError {
+  case gistAccess
+  var errorDescription: String? {
+    "It needs gist access. Run gh auth refresh -s gist, then reconnect the account."
   }
 }
 

@@ -338,18 +338,8 @@ struct AppModelTests {
 
   @Test func syncCreatesTheGistFromLocalSettingsAndPushesChanges() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appending(path: "state.json")
-    let connection = PreviewData.connections(now: .now)[0]
-    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
-    let token = UUID().uuidString
-    let store = TestCredentials()
-    try store.save(token, for: connection.id)
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [GistProtocol.self]
-    let model = AppModel(
-      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+    let (model, connection, token) = try syncingModel(in: directory)
 
     model.setDailyGoal(3, for: .personal)
     await model.syncSettings()
@@ -374,20 +364,10 @@ struct AppModelTests {
 
   @Test func syncReplacesAnUnreadableGistAndLeavesUnrelatedGistsAlone() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appending(path: "state.json")
-    let connection = PreviewData.connections(now: .now)[0]
-    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
-    let token = UUID().uuidString
-    let store = TestCredentials()
-    try store.save(token, for: connection.id)
+    let (model, _, token) = try syncingModel(in: directory)
     let unrelated = GistProtocol.publish("notes", for: token, description: "My notes")
     let unreadable = GistProtocol.publish("{\"goals\": 3}", for: token)
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [GistProtocol.self]
-    let model = AppModel(
-      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
 
     model.setDailyGoal(2, for: .personal)
     await model.syncSettings()
@@ -401,14 +381,8 @@ struct AppModelTests {
 
   @Test func gistSettingsWinTheFirstSyncAndKeepWhatThisMacCannotSee() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let url = directory.appending(path: "state.json")
-    let connection = PreviewData.connections(now: .now)[0]
-    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
-    let token = UUID().uuidString
-    let store = TestCredentials()
-    try store.save(token, for: connection.id)
+    let (model, connection, token) = try syncingModel(in: directory)
     let scope = RepositoryScope(allRepositories: false, owners: ["acme"])
     let elsewhere = RepositoryScope(allRepositories: false, owners: ["elsewhere"])
     var remote = SyncedSettings(
@@ -418,10 +392,6 @@ struct AppModelTests {
       organizations: OrganizationPreferences(pinned: ["elsewhere"], names: ["elsewhere": "Far"]),
       scopes: [connection.profile.id: scope, "other-account": elsewhere])
     GistProtocol.publish(remote, for: token)
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [GistProtocol.self]
-    let model = AppModel(
-      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
 
     await model.syncSettings()
 
@@ -440,7 +410,8 @@ struct AppModelTests {
     await model.syncSettings()
 
     #expect(model.goals(for: .personal) == Goals(daily: 8))
-    let reloaded = AppModel(stateURL: url, credentials: TestCredentials())
+    let reloaded = AppModel(
+      stateURL: directory.appending(path: "state.json"), credentials: TestCredentials())
     #expect(reloaded.goals(for: .personal) == Goals(daily: 8))
 
     GistProtocol.delete(for: token)
@@ -669,6 +640,24 @@ struct AppModelTests {
 
     #expect(model.banner == nil)
   }
+}
+
+@MainActor
+private func syncingModel(in directory: URL) throws -> (
+  AppModel, AccountConnection, token: String
+) {
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  let url = directory.appending(path: "state.json")
+  let connection = PreviewData.connections(now: .now)[0]
+  try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+  let token = UUID().uuidString
+  let store = TestCredentials()
+  try store.save(token, for: connection.id)
+  let configuration = URLSessionConfiguration.ephemeral
+  configuration.protocolClasses = [GistProtocol.self]
+  let model = AppModel(
+    stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+  return (model, connection, token)
 }
 
 private func mergedPullRequest(in repository: Repository) -> MergedPullRequest {
