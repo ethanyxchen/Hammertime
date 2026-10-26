@@ -7,6 +7,8 @@ struct SettingsView: View {
   @State private var removing: AccountConnection?
   @State private var removalError: String?
   @AppStorage(Soundtrack.mutedKey) private var isSlamSoundMuted = false
+  @Environment(\.appearsActive) private var appearsActive
+  @State private var opensAtLogin = false
 
   var body: some View {
     ScrollView {
@@ -73,6 +75,21 @@ struct SettingsView: View {
             .labelsHidden().toggleStyle(.switch).controlSize(.small)
           }
         }
+        SettingsSection("Login", footer: "Start Hammertime when you log in.") {
+          LabeledContent("Open at login") {
+            Toggle(
+              "Open at login",
+              isOn: Binding(
+                get: { opensAtLogin },
+                set: {
+                  LoginItem.setEnabled($0)
+                  opensAtLogin = LoginItem.isEnabled
+                })
+            )
+            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            .disabled(model.isPreview)
+          }
+        }
         SettingsSection("Updates") {
           LabeledContent("Refresh", value: "Every minute while the app is running")
           LabeledContent("History", value: "Merged PRs from the last 90 days")
@@ -80,6 +97,7 @@ struct SettingsView: View {
       }
       .padding(20)
     }
+    .onChange(of: appearsActive, initial: true) { opensAtLogin = LoginItem.isEnabled }
     .confirmationDialog(
       "Disconnect \(removing?.label ?? "GitHub")?",
       isPresented: Binding(
