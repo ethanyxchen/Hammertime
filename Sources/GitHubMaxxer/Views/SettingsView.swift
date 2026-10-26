@@ -26,7 +26,7 @@ struct SettingsView: View {
         SettingsSection(
           "GitHub connections",
           footer:
-            "Connect personal and work accounts. Signing in to the same account again updates its credential and keeps your repository selections. Credentials are stored in macOS Keychain. Activity is saved locally so it stays available offline."
+            "Connect personal and work accounts. Signing in to the same account again updates its credential and keeps your repository selections. Credentials are stored in macOS Keychain. Activity is saved locally so it stays available offline. Targets, colours, and repository selections sync through a secret gist on your first account."
         ) {
           ForEach(model.connections) { connection in
             VStack(alignment: .leading, spacing: 10) {

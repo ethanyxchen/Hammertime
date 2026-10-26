@@ -98,21 +98,81 @@ public struct GitHubClient: Sendable {
     return result
   }
 
+  public func gist(containing file: String) async throws -> Gist? {
+    var page = 1
+    while true {
+      let (data, _) = try await send("gists?per_page=100&page=\(page)")
+      let gists = try Self.decoder.decode([GistResponse].self, from: data)
+      if let match = gists.first(where: { $0.files[file] != nil }) {
+        return try await gist(match.id, file: file)
+      }
+      guard gists.count == 100 else { return nil }
+      page += 1
+    }
+  }
+
+  public func gist(_ id: String, file: String, ifNoneMatch etag: String? = nil) async throws
+    -> Gist?
+  {
+    let (data, response) = try await send(
+      "gists/\(id)", headers: etag.map { ["If-None-Match": $0] } ?? [:])
+    guard response.statusCode != 304 else { return nil }
+    return try Gist(data, file: file, etag: response.value(forHTTPHeaderField: "ETag"))
+  }
+
+  public func createGist(file: String, content: String, description: String) async throws -> Gist
+  {
+    let body = GistRequest(
+      description: description, public: false, files: [file: .init(content: content)])
+    let (data, _) = try await send("gists", method: "POST", body: JSONEncoder().encode(body))
+    return try Gist(data, file: file, etag: nil)
+  }
+
+  public func updateGist(_ id: String, file: String, content: String) async throws -> Gist {
+    let body = GistRequest(files: [file: .init(content: content)])
+    let (data, _) = try await send(
+      "gists/\(id)", method: "PATCH", body: JSONEncoder().encode(body))
+    return try Gist(data, file: file, etag: nil)
+  }
+
+  fileprivate static var decoder: JSONDecoder {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return decoder
+  }
+
   private func query<Response: Decodable & Sendable, Variables: Encodable & Sendable>(
     _ query: String, variables: Variables
   ) async throws -> Response {
-    var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
-    request.httpMethod = "POST"
+    let (data, _) = try await send(
+      "graphql", method: "POST",
+      body: JSONEncoder().encode(GraphQLRequest(query: query, variables: variables)))
+    let failures = try Self.decoder.decode(GraphQLFailures.self, from: data)
+    if let error = failures.errors?.first {
+      throw GitHubError.graphQL(error.message)
+    }
+    let envelope = try Self.decoder.decode(GraphQLResponse<Response>.self, from: data)
+    guard let result = envelope.data else { throw GitHubError.invalidResponse }
+    return result
+  }
+
+  private func send(
+    _ path: String, method: String = "GET", body: Data? = nil, headers: [String: String] = [:]
+  ) async throws -> (Data, HTTPURLResponse) {
+    var request = URLRequest(url: URL(string: "https://api.github.com/\(path)")!)
+    request.httpMethod = method
     request.timeoutInterval = 30
+    request.cachePolicy = .reloadIgnoringLocalCacheData
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
     request.setValue("Hammertime", forHTTPHeaderField: "User-Agent")
-    request.httpBody = try JSONEncoder().encode(GraphQLRequest(query: query, variables: variables))
+    for (field, value) in headers { request.setValue(value, forHTTPHeaderField: field) }
+    request.httpBody = body
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse else { throw GitHubError.invalidResponse }
     switch response.statusCode {
-    case 200: break
+    case 200..<300, 304: return (data, response)
     case 401: throw GitHubError.unauthorized
     case 403, 429:
       if response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
@@ -123,15 +183,22 @@ public struct GitHubClient: Sendable {
       throw GitHubError.forbidden
     default: throw GitHubError.http(response.statusCode)
     }
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    let failures = try decoder.decode(GraphQLFailures.self, from: data)
-    if let error = failures.errors?.first {
-      throw GitHubError.graphQL(error.message)
-    }
-    let envelope = try decoder.decode(GraphQLResponse<Response>.self, from: data)
-    guard let result = envelope.data else { throw GitHubError.invalidResponse }
-    return result
+  }
+}
+
+public struct Gist: Sendable, Equatable {
+  public let id: String
+  public let content: String
+  public let updatedAt: Date
+  public let etag: String?
+
+  init(_ data: Data, file: String, etag: String?) throws {
+    let response = try GitHubClient.decoder.decode(GistResponse.self, from: data)
+    guard let content = response.files[file]?.content else { throw GitHubError.invalidResponse }
+    self.id = response.id
+    self.content = content
+    self.updatedAt = response.updatedAt
+    self.etag = etag
   }
 }
 
@@ -198,5 +265,21 @@ private struct SearchResponse: Decodable, Sendable {
     let issueCount: Int
     let nodes: [MergedPullRequest]
     let pageInfo: PageInfo
+  }
+}
+private struct GistRequest: Encodable {
+  var description: String?
+  var `public`: Bool?
+  let files: [String: File]
+  struct File: Encodable { let content: String }
+}
+private struct GistResponse: Decodable {
+  let id: String
+  let updatedAt: Date
+  let files: [String: File]
+  struct File: Decodable { let content: String? }
+  enum CodingKeys: String, CodingKey {
+    case id, files
+    case updatedAt = "updated_at"
   }
 }

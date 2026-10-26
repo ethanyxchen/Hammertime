@@ -27,6 +27,10 @@ Then choose **Connect GitHub** in Hammertime and click **Connect**. Hammertime l
 
 To add another account, run `gh auth login` for it, which also makes it GitHub CLI's active account, then connect again in Hammertime. Connecting the same account again updates its credential and activity while keeping its name and repository selections. Reconnect or disconnect from **Targets & Accounts**. Disconnecting removes Hammertime's copy of the credential; GitHub CLI stays signed in.
 
+## Sync settings
+
+Targets, workspace colours, pinned and renamed organisations, and repository selections sync through a secret gist named `hammertime.json` on the first connected account. Connect that account on another Mac and its settings arrive; changes on either Mac reach the other within a minute. When a Mac syncs for the first time, the gist's settings replace its own. GitHub CLI's default sign in includes gist access; if yours does not, run `gh auth refresh -s gist` and reconnect.
+
 ## Credits
 
 - ["Sledgehammer"](https://sketchfab.com/3d-models/sledgehammer-8194ce123fd64429b183c26df7fba17e) by Yaroslav Lazun, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

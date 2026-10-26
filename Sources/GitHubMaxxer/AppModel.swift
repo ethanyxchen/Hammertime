@@ -14,20 +14,17 @@ struct AccountConnection: Codable, Identifiable {
   var profileURL: URL { URL(string: "https://github.com/\(profile.login)")! }
 }
 
-struct OrganizationPreferences: Codable {
+struct OrganizationPreferences: Codable, Equatable {
   var pinned: [String] = []
   var names: [String: String] = [:]
 
   static func key(_ organization: String) -> String { organization.lowercased() }
 
-  func keeping(_ organizations: Set<String>) -> OrganizationPreferences {
+  var normalized: OrganizationPreferences {
     var seen = Set<String>()
     return OrganizationPreferences(
-      pinned: pinned.map(Self.key).filter {
-        organizations.contains($0) && seen.insert($0).inserted
-      },
-      names: Dictionary(names.map { (Self.key($0.key), $0.value) }) { first, _ in first }
-        .filter { organizations.contains($0.key) })
+      pinned: pinned.map(Self.key).filter { seen.insert($0).inserted },
+      names: Dictionary(names.map { (Self.key($0.key), $0.value) }) { first, _ in first })
   }
 }
 
@@ -62,12 +59,12 @@ enum WorkspaceColour: String, CaseIterable, Codable, Identifiable {
   var title: String { rawValue.capitalized }
 }
 
-struct Workspace: Codable {
+struct Workspace: Codable, Equatable {
   var goals = Goals()
   var colour = WorkspaceColour.terracotta
 }
 
-struct Workspaces: Codable {
+struct Workspaces: Codable, Equatable {
   var personal = Workspace()
   var organizations: [String: Workspace] = [:]
 
@@ -97,10 +94,41 @@ struct Workspaces: Codable {
   }
 }
 
+struct SyncedSettings: Codable, Equatable {
+  static let file = "hammertime.json"
+  var workspaces: Workspaces
+  var organizations: OrganizationPreferences
+  var scopes: [String: RepositoryScope]
+}
+
+extension SyncedSettings {
+  init(_ gist: Gist) throws {
+    self = try JSONDecoder().decode(SyncedSettings.self, from: Data(gist.content.utf8))
+  }
+
+  func content() throws -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    return String(decoding: try encoder.encode(self), as: UTF8.self)
+  }
+}
+
+private struct SyncPoint: Codable {
+  let gist: String
+  let updatedAt: Date
+}
+
+extension SyncPoint {
+  init(_ gist: Gist) {
+    self.init(gist: gist.id, updatedAt: gist.updatedAt)
+  }
+}
+
 private struct SavedState: Codable {
   var workspaces = Workspaces()
   var connections: [AccountConnection] = []
   var organizations = OrganizationPreferences()
+  var synced: SyncPoint?
 }
 
 extension SavedState {
@@ -111,6 +139,7 @@ extension SavedState {
     organizations =
       try container.decodeIfPresent(OrganizationPreferences.self, forKey: .organizations)
       ?? OrganizationPreferences()
+    synced = try container.decodeIfPresent(SyncPoint.self, forKey: .synced)
   }
 }
 
@@ -125,6 +154,7 @@ final class AppModel {
   private(set) var isConnecting = false
   private(set) var connectionErrors: [UUID: String] = [:]
   private(set) var storageError: String?
+  private(set) var syncError: String?
   private(set) var now = Date.now
   private(set) var landing: Landing?
   private var held: Landing?
@@ -134,6 +164,10 @@ final class AppModel {
   private let session: URLSession
   private let stateURL: URL
   private var refreshTask: Task<Void, Never>?
+  private var synced: SyncPoint?
+  private var remote: (account: UUID, gist: Gist)?
+  private var syncTask: Task<Void, Never>?
+  private var syncPending = false
 
   init(
     preview: Bool = false, stateURL: URL? = nil,
@@ -159,6 +193,7 @@ final class AppModel {
         workspaceSettings = state.workspaces
         connections = state.connections
         organizationPreferences = state.organizations
+        synced = state.synced
         reconcileOrganizations()
       } catch {
         storageError = "Saved activity could not be loaded. \(error.localizedDescription)"
@@ -297,7 +332,7 @@ final class AppModel {
 
   var lastUpdated: Date? { connections.map { $0.snapshot.fetchedAt }.min() }
   var errors: [String] {
-    (storageError.map { [$0] } ?? [])
+    [storageError, syncError].compactMap(\.self)
       + connections.compactMap { account in
         connectionErrors[account.id].map { "\(account.label): \($0)" }
       }
@@ -366,7 +401,9 @@ final class AppModel {
         AccountConnection(
           id: connectionID, label: profile.login,
           profile: profile,
-          scope: .active(in: snapshot.pullRequests, login: profile.login), snapshot: snapshot
+          scope: remoteSettings?.scopes[profile.id]
+            ?? .active(in: snapshot.pullRequests, login: profile.login),
+          snapshot: snapshot
         ))
     }
     connectionErrors[connectionID] = nil
@@ -497,20 +534,98 @@ final class AppModel {
   }
 
   private func reconcileOrganizations() {
-    guard !connections.isEmpty else { return }
-    let owners = connections.flatMap(\.snapshot.visibleRepositories)
-    let keys = Set(owners.map { OrganizationPreferences.key($0.owner) })
-    organizationPreferences = organizationPreferences.keeping(keys)
-    workspaceSettings.organizations = workspaceSettings.organizations.filter {
-      keys.contains($0.key)
-    }
+    organizationPreferences = organizationPreferences.normalized
     for organization in organizations where workspaceSettings[.organization(organization)] == nil {
       workspaceSettings.organizations[OrganizationPreferences.key(organization)] = Workspace(
         colour: workspaceSettings.unusedColour)
     }
   }
 
+  func syncSettings() async {
+    guard !isPreview else { return }
+    syncPending = true
+    let task =
+      syncTask
+      ?? Task {
+        while syncPending {
+          syncPending = false
+          await exchangeSettings()
+        }
+        syncTask = nil
+      }
+    syncTask = task
+    await task.value
+  }
+
+  private var remoteSettings: SyncedSettings? {
+    remote.flatMap { try? SyncedSettings($0.gist) }
+  }
+
+  private func localSettings(keeping scopes: [String: RepositoryScope]) -> SyncedSettings {
+    SyncedSettings(
+      workspaces: workspaceSettings, organizations: organizationPreferences,
+      scopes: scopes.merging(connections.map { ($0.profile.id, $0.scope) }) { $1 })
+  }
+
+  private func exchangeSettings() async {
+    guard let primary = connections.first, let token = try? credentials.read(for: primary.id)
+    else { return }
+    let client = GitHubClient(token: token, session: session)
+    do {
+      var gist = try await settingsGist(client, for: primary.id)
+      guard connections.first?.id == primary.id else { return }
+      let settings = try SyncedSettings(gist)
+      if synced.map({ $0.gist != gist.id || gist.updatedAt > $0.updatedAt }) ?? true {
+        apply(settings)
+      }
+      synced = SyncPoint(gist)
+      let local = localSettings(keeping: settings.scopes)
+      if local != settings {
+        gist = try await client.updateGist(
+          gist.id, file: SyncedSettings.file, content: try local.content())
+        synced = SyncPoint(gist)
+      }
+      remote = (primary.id, gist)
+      syncError = nil
+      save()
+    } catch GitHubError.http(404) {
+      syncError =
+        "Settings sync needs gist access. Run gh auth refresh -s gist, then reconnect the account."
+    } catch {
+      syncError = "Settings could not sync with GitHub. \(error.localizedDescription)"
+    }
+  }
+
+  private func settingsGist(_ client: GitHubClient, for account: UUID) async throws -> Gist {
+    if let known = remote?.account == account ? remote?.gist : nil {
+      do {
+        return try await client.gist(known.id, file: SyncedSettings.file, ifNoneMatch: known.etag)
+          ?? known
+      } catch GitHubError.http(404) {}
+    }
+    if let found = try await client.gist(containing: SyncedSettings.file) { return found }
+    return try await client.createGist(
+      file: SyncedSettings.file, content: try localSettings(keeping: [:]).content(),
+      description: "Hammertime settings")
+  }
+
+  private func apply(_ settings: SyncedSettings) {
+    workspaceSettings = settings.workspaces
+    organizationPreferences = settings.organizations
+    for index in connections.indices {
+      if let scope = settings.scopes[connections[index].profile.id] {
+        connections[index].scope = scope
+      }
+    }
+    reconcileOrganizations()
+  }
+
   private func persist() {
+    save()
+    Task { await syncSettings() }
+  }
+
+  private func save() {
     guard !isPreview else { return }
     reconcileOrganizations()
     do {
@@ -519,7 +634,7 @@ final class AppModel {
         at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
       let state = SavedState(
         workspaces: workspaceSettings, connections: connections,
-        organizations: organizationPreferences)
+        organizations: organizationPreferences, synced: synced)
       try JSONEncoder().encode(state).write(to: stateURL, options: .atomic)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stateURL.path)
       storageError = nil
