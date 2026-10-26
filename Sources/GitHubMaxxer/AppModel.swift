@@ -597,7 +597,7 @@ final class AppModel {
       do {
         return try await client.gist(known.id, file: SyncedSettings.file, ifNoneMatch: known.etag)
           ?? known
-      } catch GitHubError.http(404) {}
+      } catch GitHubError.http(404), GitHubError.invalidResponse {}
     }
     if let found = try await client.gist(
       named: SyncedSettings.file, description: SyncedSettings.description)

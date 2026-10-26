@@ -354,11 +354,17 @@ struct AppModelTests {
     #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 5))
     #expect(GistProtocol.gists.values.count { $0.token == token } == 1)
 
-    GistProtocol.delete(for: token)
+    GistProtocol.emptyFiles(for: token)
     model.setDailyGoal(6, for: .personal)
     await model.syncSettings()
 
     #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 6))
+
+    GistProtocol.delete(for: token)
+    model.setDailyGoal(7, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 7))
     #expect(model.errors.isEmpty)
   }
 
@@ -768,7 +774,7 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
   struct Stored {
     let token: String
     var description = SyncedSettings.description
-    var content: String
+    var content: String?
     var version: Int
   }
 
@@ -780,10 +786,10 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
 
   static func settings(for token: String) -> SyncedSettings? {
     let gist = gists.values.first {
-      $0.token == token && $0.description == SyncedSettings.description
+      $0.token == token && $0.description == SyncedSettings.description && $0.content != nil
     }
     return gist.flatMap {
-      try? JSONDecoder().decode(SyncedSettings.self, from: Data($0.content.utf8))
+      try? JSONDecoder().decode(SyncedSettings.self, from: Data($0.content!.utf8))
     }
   }
 
@@ -803,6 +809,12 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
       stored[id] = Stored(
         token: token, description: description, content: content, version: clock)
       return id
+    }
+  }
+
+  static func emptyFiles(for token: String) {
+    lock.withLock {
+      for (id, gist) in stored where gist.token == token { stored[id]?.content = nil }
     }
   }
 
@@ -860,7 +872,8 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
     [
       "id": gist.key, "description": gist.value.description,
       "updated_at": timestamp(gist.value.version),
-      "files": [SyncedSettings.file: ["filename": SyncedSettings.file]],
+      "files": gist.value.content == nil
+        ? [:] : [SyncedSettings.file: ["filename": SyncedSettings.file]],
     ]
   }
 
@@ -868,7 +881,7 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
     let gist = stored[id]!
     return [
       "id": id, "updated_at": timestamp(gist.version),
-      "files": [SyncedSettings.file: ["content": gist.content]],
+      "files": gist.content.map { [SyncedSettings.file: ["content": $0]] } ?? [:],
     ]
   }
 
