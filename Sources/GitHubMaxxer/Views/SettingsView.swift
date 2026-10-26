@@ -74,9 +74,7 @@ struct SettingsView: View {
             .labelsHidden().toggleStyle(.switch).controlSize(.small)
           }
         }
-        SettingsSection(
-          "Login", footer: "Start Hammertime in the menu bar when you log in to your Mac."
-        ) {
+        SettingsSection("Login", footer: "Start Hammertime when you log in.") {
           LabeledContent("Open at login") {
             Toggle(
               "Open at login",

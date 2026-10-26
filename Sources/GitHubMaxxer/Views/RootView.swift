@@ -105,9 +105,7 @@ struct RootView: View {
         .keyboardShortcut(.defaultAction)
       Button("Not Now", role: .cancel) {}
     } message: {
-      Text(
-        "Hammertime counts your merges from the menu bar while it runs. You can change this later in Targets & Accounts."
-      )
+      Text("You can change this anytime in Settings.")
     }
     .onChange(of: model.activities) { _, activities in
       if case .activity(let filter) = model.destination, !activities.contains(filter) {
