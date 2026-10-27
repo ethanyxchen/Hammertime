@@ -184,14 +184,14 @@ private struct BannerCard: View {
     .overlay { HammerShatter(landing: landing).clipShape(.rect(cornerRadius: 18)) }
     .contentShape(.rect(cornerRadius: 18))
     .accessibilityElement(children: .combine)
-    .task(id: repository) {
+    .task(id: repository?.id) {
+      icon = nil
       icon = if let repository { await model.icon(for: repository) } else { nil }
     }
   }
 
   private var repository: Repository? {
-    let repositories = Set(pulls.map(\.repository))
-    return repositories.count == 1 ? repositories.first : nil
+    Set(pulls.map(\.repository.id)).count == 1 ? pulls.first?.repository : nil
   }
 
   private var title: String {

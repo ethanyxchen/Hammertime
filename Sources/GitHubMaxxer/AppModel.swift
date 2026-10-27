@@ -162,7 +162,7 @@ final class AppModel {
   private var synced: SyncedGist?
   private var syncTask: Task<Void, Never>?
   private var syncPending = false
-  @ObservationIgnored private var icons: [String: NSImage] = [:]
+  @ObservationIgnored private var icons: [String: NSImage?] = [:]
 
   init(
     preview: Bool = false, stateURL: URL? = nil,
@@ -508,8 +508,7 @@ final class AppModel {
     guard let account, let token = try? credentials.read(for: account.id) else { return nil }
     do {
       let client = GitHubClient(token: token, session: session)
-      guard let data = try await client.icon(of: repository), let icon = NSImage(data: data)
-      else { return nil }
+      let icon = try await client.icon(of: repository).flatMap(NSImage.init(data:))
       icons[repository.id] = icon
       return icon
     } catch {

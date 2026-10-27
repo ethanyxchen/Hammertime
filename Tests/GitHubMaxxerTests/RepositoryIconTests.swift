@@ -42,6 +42,8 @@ struct RepositoryIconTests {
       "node_modules/electron/dist/Electron.app/Contents/Resources/electron.icns",
       "packages/audio/examples/basic-usage/assets/icon.png",
       "Tests/Fixtures/Sample.icns",
+      "Pods/SomeSDK/Resources/sdk.icns",
+      "build/Martin.app/Contents/Resources/AppIcon.icns",
     ].map { RepositoryFile(path: $0) }
     #expect(RepositoryIcon.best(among: files) == nil)
   }
