@@ -162,6 +162,7 @@ final class AppModel {
   private var synced: SyncedGist?
   private var syncTask: Task<Void, Never>?
   private var syncPending = false
+  @ObservationIgnored private var icons: [String: NSImage] = [:]
 
   init(
     preview: Bool = false, stateURL: URL? = nil,
@@ -496,6 +497,26 @@ final class AppModel {
     Task {
       try? await Task.sleep(for: .seconds(max(0, landing.reveal.timeIntervalSinceNow)))
       now = .now
+    }
+  }
+
+  func icon(for repository: Repository) async -> NSImage? {
+    if let icon = icons[repository.id] { return icon }
+    let account = connections.first { account in
+      account.snapshot.pullRequests.contains { $0.repository.id == repository.id }
+    }
+    guard let account, let token = try? credentials.read(for: account.id) else { return nil }
+    do {
+      let client = GitHubClient(token: token, session: session)
+      guard let data = try await client.icon(of: repository), let icon = NSImage(data: data)
+      else { return nil }
+      icons[repository.id] = icon
+      return icon
+    } catch {
+      Logger.merges.error(
+        "Icon for \(repository.nameWithOwner, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
+      )
+      return nil
     }
   }
 

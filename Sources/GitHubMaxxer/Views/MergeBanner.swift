@@ -161,10 +161,12 @@ private struct BannerStage: View {
 private struct BannerCard: View {
   let pulls: [MergedPullRequest]
   let landing: Landing
+  @Environment(AppModel.self) private var model
+  @State private var icon: NSImage?
 
   var body: some View {
     HStack(spacing: 12) {
-      Image(nsImage: NSApplication.shared.applicationIconImage).resizable()
+      Image(nsImage: icon ?? NSApplication.shared.applicationIconImage).resizable()
         .frame(width: 34, height: 34)
       VStack(alignment: .leading, spacing: 3) {
         Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.ink)
@@ -182,6 +184,14 @@ private struct BannerCard: View {
     .overlay { HammerShatter(landing: landing).clipShape(.rect(cornerRadius: 18)) }
     .contentShape(.rect(cornerRadius: 18))
     .accessibilityElement(children: .combine)
+    .task(id: repository) {
+      icon = if let repository { await model.icon(for: repository) } else { nil }
+    }
+  }
+
+  private var repository: Repository? {
+    let repositories = Set(pulls.map(\.repository))
+    return repositories.count == 1 ? repositories.first : nil
   }
 
   private var title: String {
