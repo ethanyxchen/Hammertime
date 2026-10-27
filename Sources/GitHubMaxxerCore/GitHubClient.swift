@@ -136,6 +136,19 @@ public struct GitHubClient: Sendable {
     return try Gist(data, response, file: file)
   }
 
+  public func icon(of repository: Repository) async throws -> Data? {
+    let (data, _) = try await send("repos/\(repository.nameWithOwner)/git/trees/HEAD?recursive=1")
+    let tree = try Self.decoder.decode(TreeResponse.self, from: data)
+    guard let icon = RepositoryIcon.best(among: tree.tree.filter { $0.type == "blob" }) else {
+      return nil
+    }
+    let path = icon.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? icon.path
+    let (content, _) = try await send(
+      "repos/\(repository.nameWithOwner)/contents/\(path)",
+      headers: ["Accept": "application/vnd.github.raw"])
+    return content
+  }
+
   fileprivate static var decoder: JSONDecoder {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
@@ -267,6 +280,9 @@ private struct SearchResponse: Decodable, Sendable {
     let nodes: [MergedPullRequest]
     let pageInfo: PageInfo
   }
+}
+private struct TreeResponse: Decodable {
+  let tree: [RepositoryFile]
 }
 private struct GistRequest: Encodable {
   var description: String?

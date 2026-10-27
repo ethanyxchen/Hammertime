@@ -107,6 +107,35 @@ struct GitHubClientTests {
     }
     await #expect(throws: GitHubError.self) { try await client.repositories() }
   }
+
+  @Test func downloadsTheRepositoryIconFromItsTree() async throws {
+    let client = client { request in
+      switch request.url!.path() {
+      case "/repos/acme/r1/git/trees/HEAD":
+        #expect(request.url!.query() == "recursive=1")
+        return StubResponse(
+          body:
+            "{\"tree\":[{\"path\":\"Resources\",\"type\":\"tree\"},{\"path\":\"Resources/App Icon.icns\",\"type\":\"blob\",\"size\":9}]}"
+        )
+      case "/repos/acme/r1/contents/Resources/App%20Icon.icns":
+        #expect(request.value(forHTTPHeaderField: "Accept") == "application/vnd.github.raw")
+        return StubResponse(body: "icon-data")
+      default:
+        Issue.record("Unexpected request \(request.url!)")
+        return StubResponse(status: 404, body: "{}")
+      }
+    }
+    let repository = Repository(id: "r1", nameWithOwner: "acme/r1", isPrivate: false)
+    #expect(try await client.icon(of: repository) == Data("icon-data".utf8))
+  }
+
+  @Test func findsNoIconInARepositoryWithout() async throws {
+    let client = client { _ in
+      StubResponse(body: "{\"tree\":[{\"path\":\"README.md\",\"type\":\"blob\",\"size\":9}]}")
+    }
+    let repository = Repository(id: "r1", nameWithOwner: "acme/r1", isPrivate: false)
+    #expect(try await client.icon(of: repository) == nil)
+  }
 }
 
 private let fixedNow = ISO8601DateFormatter().date(from: "2026-09-30T12:00:00Z")!
