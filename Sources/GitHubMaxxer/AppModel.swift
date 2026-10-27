@@ -152,6 +152,7 @@ final class AppModel {
   private(set) var syncError: String?
   private(set) var now = Date.now
   private(set) var landing: Landing?
+  private(set) var icons: [String: NSImage] = [:]
   private var held: Landing?
   private var isFocused = false
   let isPreview: Bool
@@ -162,7 +163,6 @@ final class AppModel {
   private var synced: SyncedGist?
   private var syncTask: Task<Void, Never>?
   private var syncPending = false
-  @ObservationIgnored private var icons: [String: NSImage?] = [:]
 
   init(
     preview: Bool = false, stateURL: URL? = nil,
@@ -421,18 +421,23 @@ final class AppModel {
     isRefreshing = true
     defer { isRefreshing = false }
     let started = Date.now
+    let cached = Set(icons.keys)
     let results = await fetch { client, account in
       let interval = account.snapshot.refreshInterval(endingAt: started)
-      return (
-        interval, try await client.mergedPullRequests(from: interval.start, through: interval.end)
-      )
+      let pulls = try await client.mergedPullRequests(from: interval.start, through: interval.end)
+      let known = Set(account.snapshot.pullRequests.map(\.id))
+      let arrived = pulls.filter { !known.contains($0.id) }.map(\.repository)
+      let icons = await Self.icons(
+        of: arrived.filter { !cached.contains($0.id) }, from: client)
+      return (interval, pulls, icons)
     }
     for (id, result) in results {
       guard let index = connections.firstIndex(where: { $0.id == id }),
         connections[index].snapshot.fetchedAt <= started
       else { continue }
       switch result {
-      case .success(let (interval, pulls)):
+      case .success(let (interval, pulls, fetched)):
+        icons.merge(fetched.compactMapValues(NSImage.init(data:))) { $1 }
         let known = Set(merged.map(\.id))
         connections[index].snapshot.record(pulls, mergedIn: interval)
         land(Set(merged.map(\.id)).subtracting(known), since: started)
@@ -442,6 +447,23 @@ final class AppModel {
       }
     }
     persist()
+  }
+
+  nonisolated private static func icons(
+    of repositories: [Repository], from client: GitHubClient
+  ) async -> [String: Data] {
+    var icons: [String: Data] = [:]
+    for repository in Dictionary(repositories.map { ($0.id, $0) }, uniquingKeysWith: { $1 }).values
+    {
+      do {
+        icons[repository.id] = try await client.icon(of: repository)
+      } catch {
+        Logger.merges.error(
+          "Icon for \(repository.nameWithOwner, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
+        )
+      }
+    }
+    return icons
   }
 
   func refreshRepositories() async {
@@ -497,25 +519,6 @@ final class AppModel {
     Task {
       try? await Task.sleep(for: .seconds(max(0, landing.reveal.timeIntervalSinceNow)))
       now = .now
-    }
-  }
-
-  func icon(for repository: Repository) async -> NSImage? {
-    if let icon = icons[repository.id] { return icon }
-    let account = connections.first { account in
-      account.snapshot.pullRequests.contains { $0.repository.id == repository.id }
-    }
-    guard let account, let token = try? credentials.read(for: account.id) else { return nil }
-    do {
-      let client = GitHubClient(token: token, session: session)
-      let icon = try await client.icon(of: repository).flatMap(NSImage.init(data:))
-      icons[repository.id] = icon
-      return icon
-    } catch {
-      Logger.merges.error(
-        "Icon for \(repository.nameWithOwner, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
-      )
-      return nil
     }
   }
 
