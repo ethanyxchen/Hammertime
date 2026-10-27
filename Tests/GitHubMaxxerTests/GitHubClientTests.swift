@@ -108,7 +108,7 @@ struct GitHubClientTests {
     await #expect(throws: GitHubError.self) { try await client.repositories() }
   }
 
-  @Test func downloadsTheRepositoryIconFromItsTree() async throws {
+  @Test func downloadsTheRepositoryIconThroughItsDownloadURL() async throws {
     let client = client { request in
       switch request.url!.path() {
       case "/repos/acme/r1/git/trees/HEAD":
@@ -118,7 +118,12 @@ struct GitHubClientTests {
             "{\"tree\":[{\"path\":\"Resources\",\"type\":\"tree\"},{\"path\":\"Resources/App Icon.icns\",\"type\":\"blob\",\"size\":9}]}"
         )
       case "/repos/acme/r1/contents/Resources/App%20Icon.icns":
-        #expect(request.value(forHTTPHeaderField: "Accept") == "application/vnd.github.raw")
+        return StubResponse(
+          body:
+            "{\"download_url\":\"https://media.githubusercontent.com/media/acme/r1/main/Resources/App%20Icon.icns?token=lfs\"}"
+        )
+      case "/media/acme/r1/main/Resources/App%20Icon.icns":
+        #expect(request.url!.query() == "token=lfs")
         return StubResponse(body: "icon-data")
       default:
         Issue.record("Unexpected request \(request.url!)")

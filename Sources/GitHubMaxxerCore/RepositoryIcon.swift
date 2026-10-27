@@ -14,7 +14,7 @@ public struct RepositoryFile: Decodable, Sendable, Equatable {
 
 public enum RepositoryIcon {
   private static let excluded: Set<Substring> = [
-    "node_modules", "vendor", "third_party", "pods", "carthage", ".build", "build", "dist",
+    "node_modules", "vendor", "third_party", "pods", "carthage", ".build", "dist",
     "deriveddata", "test", "tests", "fixtures", "example", "examples",
   ]
   private static let icons: Set<Substring> = ["icon.png", "icon.webp", "appicon.png"]

@@ -43,8 +43,17 @@ struct RepositoryIconTests {
       "packages/audio/examples/basic-usage/assets/icon.png",
       "Tests/Fixtures/Sample.icns",
       "Pods/SomeSDK/Resources/sdk.icns",
-      "build/Martin.app/Contents/Resources/AppIcon.icns",
+      "dist/Martin.app/Contents/Resources/AppIcon.icns",
     ].map { RepositoryFile(path: $0) }
     #expect(RepositoryIcon.best(among: files) == nil)
+  }
+
+  @Test func prefersTheElectronIconInItsBuildResources() {
+    let files = [
+      "apps/desktop/build/icon.icns",
+      "apps/installer/src-tauri/icons/icon.icns",
+      "apps/installer/src-tauri/icons/icon.png",
+    ].map { RepositoryFile(path: $0) }
+    #expect(RepositoryIcon.best(among: files)?.path == "apps/desktop/build/icon.icns")
   }
 }
