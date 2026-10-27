@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GitHubMaxxerCore
 import Testing
@@ -590,13 +591,16 @@ struct AppModelTests {
     #expect(model.progress(for: .day).count == listed + 1)
     #expect(model.landing == nil)
     #expect(model.banner?.pullRequests == ["fresh-test-credential"])
-    #expect(model.announced.map(\.id) == ["fresh-test-credential"])
+    let banner = try #require(model.banner)
+    #expect(model.pullRequests(in: banner).map(\.id) == ["fresh-test-credential"])
+    #expect(model.icons["r1"] != nil)
     #expect(!model.pullRequests.contains { $0.id == "fresh-test-credential" })
 
     model.setFocused(true)
 
     let landing = try #require(model.landing)
     #expect(model.banner == nil)
+    #expect(model.pullRequests(in: banner).map(\.id) == ["fresh-test-credential"])
     #expect(landing.pullRequests == ["fresh-test-credential"])
     #expect(landing.slam == nil)
     #expect(model.pullRequests.contains { $0.id == "fresh-test-credential" })
@@ -748,23 +752,35 @@ private final class UnavailableProtocol: URLProtocol, @unchecked Sendable {
 private final class MergedProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  static let icon = NSBitmapImageRep(
+    bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4,
+    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+  )!.representation(using: .png, properties: [:])!
+
   override func startLoading() {
     let mergedAt = ISO8601DateFormatter().string(from: .now.addingTimeInterval(-60))
     let token = request.value(forHTTPHeaderField: "Authorization")?.split(separator: " ").last ?? ""
     let body =
-      (try? requestBody(request)["query"] as? String)?.contains("search(query") == true
-      ? """
-      {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/acme/app/pull/1","mergedAt":"\(mergedAt)","repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
-      """
-      : """
-      {"data":{"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}
-      """
+      switch request.url!.path() {
+      case "/repos/acme/app/git/trees/HEAD":
+        Data(#"{"tree":[{"path":"Resources/AppIcon.icns","type":"blob","size":1}]}"#.utf8)
+      case "/repos/acme/app/contents/Resources/AppIcon.icns": Self.icon
+      default:
+        Data(
+          ((try? requestBody(request)["query"] as? String)?.contains("search(query") == true
+            ? """
+            {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/acme/app/pull/1","mergedAt":"\(mergedAt)","repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
+            """
+            : """
+            {"data":{"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}
+            """).utf8)
+      }
     client?.urlProtocol(
       self,
       didReceive: HTTPURLResponse(
         url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
       cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocol(self, didLoad: body)
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}

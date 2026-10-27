@@ -122,7 +122,7 @@ private struct BannerStage: View {
     ZStack {
       if let banner = model.banner {
         Choreography(start: banner.date, duration: Slam.settle) { time in
-          BannerCard(pulls: model.announced, landing: banner)
+          BannerCard(pulls: model.pullRequests(in: banner), landing: banner)
             .onTapGesture {
               openWindow(id: "main")
               NSApplication.shared.activate(ignoringOtherApps: true)
@@ -162,12 +162,15 @@ private struct BannerCard: View {
   let pulls: [MergedPullRequest]
   let landing: Landing
   @Environment(AppModel.self) private var model
-  @State private var icon: NSImage?
 
   var body: some View {
     HStack(spacing: 12) {
-      Image(nsImage: icon ?? NSApplication.shared.applicationIconImage).resizable()
-        .frame(width: 34, height: 34)
+      Image(
+        nsImage: repository.flatMap { model.icons[$0.id] }
+          ?? NSApplication.shared.applicationIconImage
+      )
+      .resizable()
+      .frame(width: 34, height: 34)
       VStack(alignment: .leading, spacing: 3) {
         Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.ink)
         Text(detail).font(.system(size: 11, design: .monospaced))
@@ -184,10 +187,6 @@ private struct BannerCard: View {
     .overlay { HammerShatter(landing: landing).clipShape(.rect(cornerRadius: 18)) }
     .contentShape(.rect(cornerRadius: 18))
     .accessibilityElement(children: .combine)
-    .task(id: repository?.id) {
-      icon = nil
-      icon = if let repository { await model.icon(for: repository) } else { nil }
-    }
   }
 
   private var repository: Repository? {
