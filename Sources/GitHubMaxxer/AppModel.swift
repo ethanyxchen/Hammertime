@@ -420,14 +420,12 @@ final class AppModel {
     isRefreshing = true
     defer { isRefreshing = false }
     let started = Date.now
-    let cached = Set(icons.keys)
     let results = await fetch { client, account in
       let interval = account.snapshot.refreshInterval(endingAt: started)
       let pulls = try await client.mergedPullRequests(from: interval.start, through: interval.end)
       let known = Set(account.snapshot.pullRequests.map(\.id))
       let arrived = pulls.filter { !known.contains($0.id) }.map(\.repository)
-      let icons = await Self.icons(
-        of: arrived.filter { !cached.contains($0.id) }, from: client)
+      let icons = await Self.icons(of: arrived, from: client)
       return (interval, pulls, icons)
     }
     for (id, result) in results {
@@ -436,7 +434,7 @@ final class AppModel {
       else { continue }
       switch result {
       case .success(let (interval, pulls, fetched)):
-        icons.merge(fetched.compactMapValues(NSImage.init(data:))) { $1 }
+        for (repository, icon) in fetched { icons[repository] = icon.flatMap(NSImage.init(data:)) }
         let known = Set(merged.map(\.id))
         connections[index].snapshot.record(pulls, mergedIn: interval)
         land(Set(merged.map(\.id)).subtracting(known), since: started)
@@ -450,12 +448,12 @@ final class AppModel {
 
   nonisolated private static func icons(
     of repositories: [Repository], from client: GitHubClient
-  ) async -> [String: Data] {
-    var icons: [String: Data] = [:]
+  ) async -> [String: Data?] {
+    var icons: [String: Data?] = [:]
     for repository in Dictionary(repositories.map { ($0.id, $0) }, uniquingKeysWith: { $1 }).values
     {
       do {
-        icons[repository.id] = try await client.icon(of: repository)
+        icons[repository.id] = .some(try await client.icon(of: repository))
       } catch {
         Logger.merges.error(
           "Icon for \(repository.nameWithOwner, privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
