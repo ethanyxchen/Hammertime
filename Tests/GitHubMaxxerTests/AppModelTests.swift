@@ -591,7 +591,8 @@ struct AppModelTests {
     #expect(model.progress(for: .day).count == listed + 1)
     #expect(model.landing == nil)
     #expect(model.banner?.pullRequests == ["fresh-test-credential"])
-    #expect(model.announced.map(\.id) == ["fresh-test-credential"])
+    let banner = try #require(model.banner)
+    #expect(model.pullRequests(in: banner).map(\.id) == ["fresh-test-credential"])
     #expect(model.icons["r1"] != nil)
     #expect(!model.pullRequests.contains { $0.id == "fresh-test-credential" })
 
@@ -599,6 +600,7 @@ struct AppModelTests {
 
     let landing = try #require(model.landing)
     #expect(model.banner == nil)
+    #expect(model.pullRequests(in: banner).map(\.id) == ["fresh-test-credential"])
     #expect(landing.pullRequests == ["fresh-test-credential"])
     #expect(landing.slam == nil)
     #expect(model.pullRequests.contains { $0.id == "fresh-test-credential" })

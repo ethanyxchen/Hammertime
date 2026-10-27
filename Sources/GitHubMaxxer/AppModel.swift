@@ -202,12 +202,11 @@ final class AppModel {
     return merged.filter { !withheld.contains($0.id) }
   }
 
-  var announced: [MergedPullRequest] {
-    let ids = held?.pullRequests ?? []
-    return merged.filter { ids.contains($0.id) }
+  func pullRequests(in landing: Landing) -> [MergedPullRequest] {
+    merged.filter { landing.pullRequests.contains($0.id) }
   }
 
-  var banner: Landing? { announced.isEmpty ? nil : held }
+  var banner: Landing? { held.flatMap { pullRequests(in: $0).isEmpty ? nil : $0 } }
 
   var isWelcoming: Bool {
     connections.isEmpty

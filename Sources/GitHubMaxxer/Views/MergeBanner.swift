@@ -122,7 +122,7 @@ private struct BannerStage: View {
     ZStack {
       if let banner = model.banner {
         Choreography(start: banner.date, duration: Slam.settle) { time in
-          BannerCard(pulls: model.announced, landing: banner)
+          BannerCard(pulls: model.pullRequests(in: banner), landing: banner)
             .onTapGesture {
               openWindow(id: "main")
               NSApplication.shared.activate(ignoringOtherApps: true)
