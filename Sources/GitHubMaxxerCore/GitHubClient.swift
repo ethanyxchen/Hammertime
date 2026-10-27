@@ -143,9 +143,12 @@ public struct GitHubClient: Sendable {
       return nil
     }
     let path = icon.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? icon.path
-    let (content, _) = try await send(
-      "repos/\(repository.nameWithOwner)/contents/\(path)",
-      headers: ["Accept": "application/vnd.github.raw"])
+    let (metadata, _) = try await send("repos/\(repository.nameWithOwner)/contents/\(path)")
+    let file = try Self.decoder.decode(FileResponse.self, from: metadata)
+    let (content, response) = try await session.data(from: file.downloadUrl)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+      throw GitHubError.invalidResponse
+    }
     return content
   }
 
@@ -283,6 +286,10 @@ private struct SearchResponse: Decodable, Sendable {
 }
 private struct TreeResponse: Decodable {
   let tree: [RepositoryFile]
+}
+private struct FileResponse: Decodable {
+  let downloadUrl: URL
+  enum CodingKeys: String, CodingKey { case downloadUrl = "download_url" }
 }
 private struct GistRequest: Encodable {
   var description: String?

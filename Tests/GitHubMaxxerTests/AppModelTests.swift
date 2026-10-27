@@ -764,7 +764,9 @@ private final class MergedProtocol: URLProtocol, @unchecked Sendable {
       switch request.url!.path() {
       case "/repos/acme/app/git/trees/HEAD":
         Data(#"{"tree":[{"path":"Resources/AppIcon.icns","type":"blob","size":1}]}"#.utf8)
-      case "/repos/acme/app/contents/Resources/AppIcon.icns": Self.icon
+      case "/repos/acme/app/contents/Resources/AppIcon.icns":
+        Data(#"{"download_url":"https://media.githubusercontent.com/acme/app/AppIcon.icns"}"#.utf8)
+      case "/acme/app/AppIcon.icns": Self.icon
       default:
         Data(
           ((try? requestBody(request)["query"] as? String)?.contains("search(query") == true
