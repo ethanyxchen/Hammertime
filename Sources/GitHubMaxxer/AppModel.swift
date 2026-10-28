@@ -99,6 +99,7 @@ struct Workspace: Codable, Equatable {
 struct Workspaces: Codable, Equatable {
   var personal = Workspace()
   var organizations: [String: Workspace] = [:]
+  var countsOnly = false
 
   subscript(filter: ActivityFilter) -> Workspace? {
     get {
@@ -123,6 +124,15 @@ struct Workspaces: Codable, Equatable {
     return WorkspaceColour.allCases.min { colour, other in
       used.count { $0 == colour } < used.count { $0 == other }
     }!
+  }
+}
+
+extension Workspaces {
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    personal = try container.decode(Workspace.self, forKey: .personal)
+    organizations = try container.decode([String: Workspace].self, forKey: .organizations)
+    countsOnly = try container.decodeIfPresent(Bool.self, forKey: .countsOnly) ?? false
   }
 }
 
@@ -297,6 +307,13 @@ final class AppModel {
     persist()
   }
 
+  var countsOnly: Bool { workspaceSettings.countsOnly }
+
+  func setCountsOnly(_ countsOnly: Bool) {
+    workspaceSettings.countsOnly = countsOnly
+    persist()
+  }
+
   func setColour(_ colour: WorkspaceColour, for filter: ActivityFilter) {
     workspaceSettings[filter]?.colour = colour
     persist()
@@ -338,6 +355,12 @@ final class AppModel {
     filter.pullRequests(in: pullRequests, personalLogins: personalLogins)
   }
 
+  func pullRequests(for filter: ActivityFilter, in pulls: [MergedPullRequest])
+    -> [MergedPullRequest]
+  {
+    filter.pullRequests(in: pulls, personalLogins: personalLogins)
+  }
+
   private var personalLogins: Set<String> { roster.personalLogins }
 
   var lastUpdated: Date? { connections.map { $0.snapshot.fetchedAt }.min() }
@@ -361,7 +384,7 @@ final class AppModel {
   func isReached(_ period: GoalPeriod, in pulls: [MergedPullRequest], filter: ActivityFilter)
     -> Bool
   {
-    goals(for: filter)[period] > 0
+    !countsOnly && goals(for: filter)[period] > 0
       && (filter == .all ? workspaces : [filter]).allSatisfy { workspace in
         workspace.pullRequests(in: pulls, personalLogins: personalLogins).count
           >= goals(for: workspace)[period]

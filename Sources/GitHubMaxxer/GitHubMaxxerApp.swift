@@ -76,7 +76,7 @@ private struct MenuBarLabel: View {
       } else {
         Image(nsImage: .mark)
       }
-      Text("\(today.count)/\(today.target)")
+      Text(model.countsOnly ? "\(today.count)" : "\(today.count)/\(today.target)")
     }
     .onReceive(NotificationCenter.default.publisher(for: .reopenHammertime)) { _ in
       openWindow(id: "main")
@@ -107,7 +107,13 @@ private struct MenuBarView: View {
     Section(GoalPeriod.day.title) {
       ForEach(model.workspaces, id: \.self) { workspace in
         let progress = model.progress(for: .day, filter: workspace)
-        Text("\(model.title(for: workspace)): \(progress.count) / \(progress.target) PRs")
+        if model.countsOnly {
+          Text(
+            "\(model.title(for: workspace)): \(progress.count) \(progress.count == 1 ? "PR" : "PRs")"
+          )
+        } else {
+          Text("\(model.title(for: workspace)): \(progress.count) / \(progress.target) PRs")
+        }
       }
     }
     Divider()

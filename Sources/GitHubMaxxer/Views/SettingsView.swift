@@ -15,14 +15,24 @@ struct SettingsView: View {
       VStack(alignment: .leading, spacing: 24) {
         SettingsSection(
           "Daily merged PR targets",
-          footer:
-            "Set a target for Personal and each organisation, or 0 for none. All activity adds them together. Right-click Personal or an organisation in the sidebar to change its colour. Weekly and monthly targets follow the daily target: 5 days per week and 20 days per month. PRs count on their merge date, using your Mac's time zone. Weeks run Monday through Sunday. Each PR counts once across all connections."
+          footer: model.countsOnly
+            ? "Count merged PRs for Personal and each organisation without a target. PRs count on their merge date, using your Mac's time zone. Weeks run Monday through Sunday. Each PR counts once across all connections."
+            : "Set a target for Personal and each organisation, or 0 for none. All activity adds them together. Right-click Personal or an organisation in the sidebar to change its colour. Weekly and monthly targets follow the daily target: 5 days per week and 20 days per month. PRs count on their merge date, using your Mac's time zone. Weeks run Monday through Sunday. Each PR counts once across all connections."
         ) {
-          ForEach(model.workspaces, id: \.self) { TargetRow(workspace: $0) }
-          LabeledContent(ActivityFilter.all.title) {
-            let total = model.goals(for: .all)
-            Text("\(total.daily) a day · \(total.weekly) a week · \(total.monthly) a month")
-              .monospacedDigit()
+          LabeledContent("Use targets") {
+            Toggle(
+              "Use targets",
+              isOn: Binding(get: { !model.countsOnly }, set: { model.setCountsOnly(!$0) })
+            )
+            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+          }
+          if !model.countsOnly {
+            ForEach(model.workspaces, id: \.self) { TargetRow(workspace: $0) }
+            LabeledContent(ActivityFilter.all.title) {
+              let total = model.goals(for: .all)
+              Text("\(total.daily) a day · \(total.weekly) a week · \(total.monthly) a month")
+                .monospacedDigit()
+            }
           }
         }
         SettingsSection(

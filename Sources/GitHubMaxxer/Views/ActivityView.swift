@@ -38,7 +38,7 @@ struct ActivityView: View {
             if search.isEmpty { pager(proxy).padding(.bottom, 28) }
           }
           .padding(.horizontal, 40)
-          .frame(maxWidth: 960, minHeight: viewport.size.height)
+          .frame(maxWidth: model.countsOnly ? 860 : 960, minHeight: viewport.size.height)
           .frame(maxWidth: .infinity)
         }
       }
@@ -47,7 +47,12 @@ struct ActivityView: View {
     .foregroundStyle(Palette.ink)
   }
 
+  @ViewBuilder
   private func progress(_ pulls: [MergedPullRequest]) -> some View {
+    if model.countsOnly { tally(pulls) } else { targets(pulls) }
+  }
+
+  private func targets(_ pulls: [MergedPullRequest]) -> some View {
     HStack(alignment: .top, spacing: 48) {
       today(standing(.day, in: pulls)).frame(maxWidth: .infinity, alignment: .leading)
       VStack(alignment: .leading, spacing: 28) {
@@ -57,6 +62,77 @@ struct ActivityView: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  private func tally(_ pulls: [MergedPullRequest]) -> some View {
+    let days = Activity.days(Activity.historyDays, of: pulls, endingAt: model.now)
+    let best = Array(days.suffix(30)).busiest
+    let today = dayTally("Today", days.last)
+    let mostProductive = dayTally(
+      best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
+    let heatmap = tallyColumn("Last \(days.count) days") { Heatmap(days: days, best: best?.date) }
+    return ViewThatFits(in: .horizontal) {
+      TallyLayout {
+        today
+        Rule(vertical: true)
+        mostProductive
+        Rule(vertical: true)
+        heatmap
+      }
+      VStack(alignment: .leading, spacing: 28) {
+        HStack(alignment: .top, spacing: 32) {
+          today
+          Rule(vertical: true)
+          mostProductive
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        heatmap.frame(maxWidth: 360, alignment: .leading)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func dayTally(_ title: String, _ day: ActivityDay?) -> some View {
+    let count = day?.count ?? 0
+    let split = day.map { filter == .all ? self.split($0.pullRequests) : [] } ?? []
+    return tallyColumn(title) {
+      HStack(alignment: .lastTextBaseline, spacing: 14) {
+        Text(padded(count)).font(.readout(56))
+        if !split.isEmpty {
+          Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
+            ForEach(Array(split.enumerated()), id: \.offset) { _, row in
+              GridRow {
+                Text(row.title)
+                Text(String(row.count)).gridColumnAlignment(.trailing)
+              }
+            }
+          }
+          .font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Palette.secondary)
+        }
+      }
+    }
+    .fixedSize(horizontal: true, vertical: false)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "\(title): \(count) merged \(count == 1 ? "PR" : "PRs")"
+        + split.map { ". \($0.title): \($0.count)" }.joined())
+  }
+
+  private func tallyColumn(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Eyebrow(title)
+      Spacer(minLength: 16)
+      content()
+    }
+  }
+
+  private func split(_ pulls: [MergedPullRequest]) -> [(title: String, count: Int)] {
+    let rows = model.workspaces.map {
+      (title: model.title(for: $0), count: model.pullRequests(for: $0, in: pulls).count)
+    }
+    let other = pulls.count - rows.map(\.count).reduce(0, +)
+    let split = rows + (other > 0 ? [(title: "Other", count: other)] : [])
+    return split.count > 1 ? split : []
   }
 
   private func standing(_ period: GoalPeriod, in pulls: [MergedPullRequest]) -> Standing {
@@ -203,10 +279,14 @@ struct ActivityView: View {
     HStack {
       Eyebrow(dayName(day))
       Spacer()
-      Text("\(padded(pulls.count)) / \(padded(model.goals(for: filter).daily))")
-        .font(.readout(11))
-        .foregroundStyle(
-          model.isReached(.day, in: pulls, filter: filter) ? Palette.reached : Palette.secondary)
+      Text(
+        model.countsOnly
+          ? padded(pulls.count)
+          : "\(padded(pulls.count)) / \(padded(model.goals(for: filter).daily))"
+      )
+      .font(.readout(11))
+      .foregroundStyle(
+        model.isReached(.day, in: pulls, filter: filter) ? Palette.reached : Palette.secondary)
     }
     .padding(.top, 18).padding(.bottom, 8)
     .overlay(alignment: .bottom) { Rule() }
@@ -257,6 +337,87 @@ private struct Standing {
 
 private func padded(_ value: Int) -> String {
   value < 10 ? "0\(value)" : String(value)
+}
+
+private func dayLabel(_ date: Date) -> String {
+  date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+}
+
+private struct TallyLayout: Layout {
+  var heatmapShare: CGFloat = 0.4
+  var minimumGap: CGFloat = 24
+  var minimumHeatmap: CGFloat = 220
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let columns = columns(width: proposal.width, subviews: subviews)
+    return CGSize(width: columns.width, height: columns.height)
+  }
+
+  func placeSubviews(
+    in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+  ) {
+    let columns = columns(width: bounds.width, subviews: subviews)
+    var x = bounds.minX
+    for (subview, width) in zip(subviews, columns.widths) {
+      subview.place(
+        at: CGPoint(x: x, y: bounds.minY),
+        proposal: ProposedViewSize(width: width, height: columns.height))
+      x += width + columns.gap
+    }
+  }
+
+  private func columns(width: CGFloat?, subviews: Subviews) -> (
+    widths: [CGFloat], gap: CGFloat, width: CGFloat, height: CGFloat
+  ) {
+    var widths = subviews.dropLast().map { $0.sizeThatFits(.unspecified).width }
+    let fixed = widths.reduce(0, +)
+    let gaps = CGFloat(max(subviews.count - 1, 1))
+    let available = width ?? 0
+    widths.append(
+      max(minimumHeatmap, min(available * heatmapShare, available - fixed - gaps * minimumGap)))
+    let width = max(available, widths.reduce(0, +) + gaps * minimumGap)
+    let height =
+      zip(subviews, widths).map {
+        $0.sizeThatFits(ProposedViewSize(width: $1, height: nil)).height
+      }.max() ?? 0
+    return (widths, (width - widths.reduce(0, +)) / gaps, width, height)
+  }
+}
+
+private struct Heatmap: View {
+  let days: [ActivityDay]
+  let best: Date?
+  private static let columns = 18
+
+  var body: some View {
+    let total = days.map(\.count).reduce(0, +)
+    return VStack(alignment: .leading, spacing: 4) {
+      ForEach(Array(stride(from: 0, to: days.count, by: Self.columns)), id: \.self) { start in
+        HStack(spacing: 4) {
+          ForEach(days[start..<min(start + Self.columns, days.count)]) { square($0) }
+        }
+      }
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "Last \(days.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
+  }
+
+  private func square(_ day: ActivityDay) -> some View {
+    RoundedRectangle(cornerRadius: 3).fill(Palette.heat(day.count))
+      .aspectRatio(1, contentMode: .fit)
+      .overlay {
+        if let ring = ring(day) {
+          RoundedRectangle(cornerRadius: 4.5).strokeBorder(ring, lineWidth: 1.5).padding(-3)
+        }
+      }
+      .help("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
+  }
+
+  private func ring(_ day: ActivityDay) -> Color? {
+    if day.id == days.last?.id { return Palette.ink }
+    return day.date == best ? Palette.secondary : nil
+  }
 }
 
 private func periodDateLabel(_ period: GoalPeriod, now: Date) -> String {
