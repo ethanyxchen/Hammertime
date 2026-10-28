@@ -23,8 +23,12 @@ enum Destination: Hashable {
     }
   }
 
+  static func all(through activities: [ActivityFilter]) -> [Destination] {
+    activities.map(Destination.activity) + [.repositories, .settings]
+  }
+
   func step(_ offset: Int, through activities: [ActivityFilter]) -> Destination {
-    let all = activities.map(Destination.activity) + [.repositories, .settings]
+    let all = Destination.all(through: activities)
     guard let index = all.firstIndex(of: self) else { return self }
     return all[(index + offset + all.count) % all.count]
   }
@@ -49,6 +53,7 @@ extension View {
 
 private struct PageStack: NSViewRepresentable {
   let key: Destination
+  let keys: [Destination]
   let page: AnyView
 
   final class Coordinator {
@@ -60,7 +65,14 @@ private struct PageStack: NSViewRepresentable {
   func makeNSView(context: Context) -> NSView { NSView() }
 
   func updateNSView(_ container: NSView, context: Context) {
-    for (other, host) in context.coordinator.hosts where other != key { host.isHidden = true }
+    for (other, host) in context.coordinator.hosts where other != key {
+      guard keys.contains(other) else {
+        host.removeFromSuperview()
+        context.coordinator.hosts[other] = nil
+        continue
+      }
+      host.isHidden = true
+    }
     let host = context.coordinator.hosts[key] ?? host(in: container, context: context)
     host.rootView = page
     host.isHidden = false
@@ -306,10 +318,13 @@ struct RootView: View {
   }
 
   private var content: some View {
-    PageStack(key: model.destination, page: AnyView(page.environment(model)))
-      .task(id: model.destination == .repositories) {
-        if model.destination == .repositories { await model.refreshRepositories() }
-      }
+    PageStack(
+      key: model.destination, keys: Destination.all(through: model.activities),
+      page: AnyView(page.environment(model))
+    )
+    .task(id: model.destination) {
+      if model.destination == .repositories { await model.refreshRepositories() }
+    }
   }
 
   @ViewBuilder
