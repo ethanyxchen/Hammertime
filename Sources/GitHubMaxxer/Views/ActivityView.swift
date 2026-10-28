@@ -31,7 +31,7 @@ struct ActivityView: View {
       ScrollViewReader { proxy in
         ScrollView {
           VStack(spacing: 0) {
-            PageTitle(title).padding(.top, 28).id("top")
+            PageTitle(title).padding(.top, 28)
             progress(pulls).padding(.top, 24).padding(.bottom, 32)
             log(days(in: pulls)).padding(.vertical, 20).id("log")
             Spacer(minLength: 0)
@@ -40,10 +40,6 @@ struct ActivityView: View {
           .padding(.horizontal, 40)
           .frame(maxWidth: 960, minHeight: viewport.size.height)
           .frame(maxWidth: .infinity)
-        }
-        .onChange(of: filter) {
-          page = 0
-          proxy.scrollTo("top", anchor: .top)
         }
       }
     }
