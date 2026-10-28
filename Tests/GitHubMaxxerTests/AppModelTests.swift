@@ -469,6 +469,25 @@ struct AppModelTests {
     #expect(AppModel(stateURL: url, credentials: store).connections.isEmpty)
   }
 
+  @Test func keepingAConnectionsLabelSavesNothing() throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "state.json")
+    let connection = PreviewData.connections(now: .now)[0]
+    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+    let model = AppModel(stateURL: url, credentials: TestCredentials())
+    try FileManager.default.removeItem(at: url)
+
+    model.rename(" \(connection.label) ", id: connection.id)
+
+    #expect(!FileManager.default.fileExists(atPath: url.path))
+
+    model.rename("Work", id: connection.id)
+
+    #expect(AppModel(stateURL: url, credentials: TestCredentials()).connections[0].label == "Work")
+  }
+
   @Test func failedRefreshPreservesSnapshotAndReportsError() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

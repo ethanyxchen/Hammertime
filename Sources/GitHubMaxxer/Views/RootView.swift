@@ -60,6 +60,7 @@ struct RootView: View {
   @State private var renaming: String?
   @State private var newName = ""
   @State private var showsShortcuts = false
+  @State private var search = ""
   @AppStorage(LoginItem.offeredKey) private var hasOfferedLoginItem = false
 
   var body: some View {
@@ -177,6 +178,9 @@ struct RootView: View {
       }
     }
     .navigationSplitViewStyle(.balanced)
+    .searchable(text: $search, placement: .toolbar, prompt: searchPrompt)
+    .findable()
+    .onChange(of: model.destination) { search = "" }
     .focusedSceneValue(\.destination, Bindable(model).destination)
     .onModifierKeysChanged(mask: .command) { _, keys in showsShortcuts = keys.contains(.command) }
   }
@@ -199,6 +203,10 @@ struct RootView: View {
     .tag(destination)
     .listRowInsets(EdgeInsets())
     .listRowBackground(Palette.sidebar)
+  }
+
+  private var searchPrompt: String {
+    model.destination == .repositories ? "Find a repository or owner" : "Search merges"
   }
 
   private func title(for destination: Destination) -> String {
@@ -271,11 +279,11 @@ struct RootView: View {
   private var content: some View {
     switch model.destination {
     case .activity(let filter):
-      ActivityView(filter: filter, title: title(for: model.destination)).id(filter)
+      ActivityView(filter: filter, title: title(for: model.destination), search: search)
     case .repositories:
       VStack(spacing: 0) {
         PageTitle(title(for: model.destination)).padding([.horizontal, .top], 20)
-        RepositoriesView()
+        RepositoriesView(search: search)
       }
     case .settings:
       VStack(spacing: 0) {
