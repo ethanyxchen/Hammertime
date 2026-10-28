@@ -86,7 +86,7 @@ struct ActivityView: View {
           mostProductive
         }
         .fixedSize(horizontal: false, vertical: true)
-        heatmap.frame(maxWidth: 360, alignment: .leading)
+        heatmap.frame(maxWidth: 280, alignment: .leading)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -387,36 +387,82 @@ private struct TallyLayout: Layout {
 private struct Heatmap: View {
   let days: [ActivityDay]
   let best: Date?
-  private static let columns = 18
+  @State private var hovered: Int?
+  @State private var width: CGFloat = 0
+  private static let spacing: CGFloat = 4
+
+  private var lead: Int {
+    days.first.map { (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 } ?? 0
+  }
+  private var columns: Int { (lead + days.count + 6) / 7 }
+  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(max(columns, 1)) }
 
   var body: some View {
     let total = days.map(\.count).reduce(0, +)
-    return VStack(alignment: .leading, spacing: 4) {
-      ForEach(Array(stride(from: 0, to: days.count, by: Self.columns)), id: \.self) { start in
-        HStack(spacing: 4) {
-          ForEach(days[start..<min(start + Self.columns, days.count)]) { square($0) }
+    return HStack(alignment: .top, spacing: Self.spacing) {
+      ForEach(0..<columns, id: \.self) { column in
+        VStack(spacing: Self.spacing) {
+          ForEach(0..<7, id: \.self) { row in square(column * 7 + row - lead) }
         }
       }
+    }
+    .onGeometryChange(for: CGFloat.self) {
+      $0.size.width
+    } action: {
+      width = $0
+    }
+    .onContinuousHover { phase in
+      switch phase {
+      case .active(let point): hovered = index(at: point)
+      case .ended: hovered = nil
+      }
+    }
+    .overlay(alignment: .topLeading) {
+      if let hovered { tooltip(hovered) }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "Last \(days.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
   }
 
-  private func square(_ day: ActivityDay) -> some View {
-    RoundedRectangle(cornerRadius: 3).fill(Palette.heat(day.count))
+  private func square(_ index: Int) -> some View {
+    RoundedRectangle(cornerRadius: 3)
+      .fill(days.indices.contains(index) ? Palette.heat(days[index].count) : .clear)
       .aspectRatio(1, contentMode: .fit)
       .overlay {
-        if let ring = ring(day) {
+        if let ring = ring(index) {
           RoundedRectangle(cornerRadius: 4.5).strokeBorder(ring, lineWidth: 1.5).padding(-3)
         }
       }
-      .help("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
   }
 
-  private func ring(_ day: ActivityDay) -> Color? {
-    if day.id == days.last?.id { return Palette.ink }
-    return day.date == best ? Palette.secondary : nil
+  private func ring(_ index: Int) -> Color? {
+    guard days.indices.contains(index) else { return nil }
+    if index == hovered || index == days.count - 1 { return Palette.ink }
+    return days[index].date == best ? Palette.secondary : nil
+  }
+
+  private func index(at point: CGPoint) -> Int? {
+    guard pitch > 0, point.x >= 0, point.y >= 0 else { return nil }
+    let column = Int(point.x / pitch)
+    let row = Int(point.y / pitch)
+    let index = column * 7 + row - lead
+    return column < columns && row < 7 && days.indices.contains(index) ? index : nil
+  }
+
+  private func tooltip(_ index: Int) -> some View {
+    let day = days[index]
+    let center = CGFloat((index + lead) / 7) * pitch + (pitch - Self.spacing) / 2
+    let top = CGFloat((index + lead) % 7) * pitch
+    let width = width
+    return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
+      .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
+      .padding(.horizontal, 8).padding(.vertical, 5)
+      .background(Palette.ink, in: .rect(cornerRadius: 5))
+      .fixedSize()
+      .alignmentGuide(.leading) { -min(max(center - $0.width / 2, 0), width - $0.width) }
+      .alignmentGuide(.top) { $0.height + 6 - top }
+      .allowsHitTesting(false)
   }
 }
 
