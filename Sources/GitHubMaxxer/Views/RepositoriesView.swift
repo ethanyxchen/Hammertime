@@ -3,8 +3,8 @@ import SwiftUI
 
 struct RepositoriesView: View {
   @Environment(AppModel.self) private var model
+  let search: String
   @State private var selectedConnection: UUID?
-  @State private var search = ""
 
   private var account: AccountConnection? {
     model.connections.first { $0.id == selectedConnection } ?? model.connections.first
@@ -113,8 +113,6 @@ struct RepositoriesView: View {
             "Connect GitHub to choose which repositories count toward your targets."))
       }
     }
-    .searchable(text: $search, placement: .toolbar, prompt: "Find a repository or owner")
-    .findable()
     .task { await model.refreshRepositories() }
   }
 

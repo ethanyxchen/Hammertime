@@ -5,7 +5,7 @@ struct ActivityView: View {
   @Environment(AppModel.self) private var model
   let filter: ActivityFilter
   let title: String
-  @State private var search = ""
+  let search: String
   @State private var page = 0
 
   private var interval: DateInterval { Activity.page(page, endingAt: model.now) }
@@ -31,23 +31,24 @@ struct ActivityView: View {
       ScrollViewReader { proxy in
         ScrollView {
           VStack(spacing: 0) {
-            PageTitle(title).padding(.top, 28)
+            PageTitle(title).padding(.top, 28).id("top")
             progress(pulls).padding(.top, 24).padding(.bottom, 32)
             log(days(in: pulls)).padding(.vertical, 20).id("log")
             Spacer(minLength: 0)
-            if search.isEmpty { pager.padding(.bottom, 28) }
+            if search.isEmpty { pager(proxy).padding(.bottom, 28) }
           }
           .padding(.horizontal, 40)
           .frame(maxWidth: 960, minHeight: viewport.size.height)
           .frame(maxWidth: .infinity)
         }
-        .onChange(of: page) { proxy.scrollTo("log", anchor: .top) }
+        .onChange(of: filter) {
+          page = 0
+          proxy.scrollTo("top", anchor: .top)
+        }
       }
     }
     .background(Palette.panel)
     .foregroundStyle(Palette.ink)
-    .searchable(text: $search, placement: .toolbar, prompt: "Search merges")
-    .findable()
   }
 
   private func progress(_ pulls: [MergedPullRequest]) -> some View {
@@ -166,13 +167,13 @@ struct ActivityView: View {
     model.landing.flatMap { $0.pullRequests.contains(pull.id) ? $0 : nil }
   }
 
-  private var pager: some View {
+  private func pager(_ proxy: ScrollViewProxy) -> some View {
     let last = interval.end.addingTimeInterval(-1)
     let range =
       "\(interval.start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
     return HStack {
       Button {
-        page += 1
+        turn(1, proxy)
       } label: {
         Label("Older", systemImage: "chevron.left")
       }
@@ -183,7 +184,7 @@ struct ActivityView: View {
         .foregroundStyle(Palette.secondary)
       Spacer()
       Button {
-        page -= 1
+        turn(-1, proxy)
       } label: {
         HStack(spacing: 4) {
           Text("Newer")
@@ -195,6 +196,11 @@ struct ActivityView: View {
     }
     .buttonStyle(.borderless)
     .font(.system(size: 12, weight: .medium, design: .monospaced))
+  }
+
+  private func turn(_ offset: Int, _ proxy: ScrollViewProxy) {
+    page += offset
+    proxy.scrollTo("log", anchor: .top)
   }
 
   private func dayHeader(_ day: Date, pulls: [MergedPullRequest]) -> some View {

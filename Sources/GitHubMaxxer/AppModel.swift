@@ -14,6 +14,38 @@ struct AccountConnection: Codable, Identifiable {
   var profileURL: URL { URL(string: "https://github.com/\(profile.login)")! }
 }
 
+private struct Roster {
+  let personalLogins: Set<String>
+  let pullRequests: [MergedPullRequest]
+  let organizations: [String]
+  let people: Set<String>
+  let countsPersonal: Bool
+
+  init(_ connections: [AccountConnection]) {
+    let personalLogins = Set(connections.map(\.profile.login))
+    let owners = connections.flatMap { account in
+      account.snapshot.visibleRepositories.filter(account.scope.includes).map(\.owner)
+    }
+    let isPersonal = { (owner: String) in
+      personalLogins.contains { $0.caseInsensitiveCompare(owner) == .orderedSame }
+    }
+    self.personalLogins = personalLogins
+    pullRequests = Activity.mergedPullRequests(
+      from: connections.map {
+        ScopedActivity(pullRequests: $0.snapshot.pullRequests, scope: $0.scope)
+      })
+    organizations = Dictionary(
+      owners.filter { !isPersonal($0) }.map { (OrganizationPreferences.key($0), $0) }
+    ) { first, _ in first }
+    .values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    people = Set(
+      connections.flatMap(\.snapshot.visibleRepositories)
+        .filter { $0.ownerKind != .organization }
+        .map { OrganizationPreferences.key($0.owner) })
+    countsPersonal = owners.contains(where: isPersonal)
+  }
+}
+
 struct OrganizationPreferences: Codable, Equatable {
   var pinned: [String] = []
   var names: [String: String] = [:]
@@ -142,7 +174,10 @@ extension SavedState {
 @Observable
 final class AppModel {
   var destination: Destination = .activity(.all)
-  private(set) var connections: [AccountConnection] = []
+  private(set) var connections: [AccountConnection] = [] {
+    didSet { roster = Roster(connections) }
+  }
+  private var roster = Roster([])
   private(set) var workspaceSettings = Workspaces()
   private(set) var organizationPreferences = OrganizationPreferences()
   private(set) var isRefreshing = false
@@ -189,11 +224,12 @@ final class AppModel {
         connections = state.connections
         organizationPreferences = state.organizations
         synced = state.synced
-        reconcileOrganizations()
       } catch {
         storageError = "Saved activity could not be loaded. \(error.localizedDescription)"
       }
     }
+    roster = Roster(connections)
+    if !preview { reconcileOrganizations() }
   }
 
   var pullRequests: [MergedPullRequest] {
@@ -215,33 +251,13 @@ final class AppModel {
 
   private var merged: [MergedPullRequest] {
     let interval = Activity.historyInterval(endingAt: now)
-    return Activity.mergedPullRequests(
-      from: connections.map {
-        ScopedActivity(pullRequests: $0.snapshot.pullRequests, scope: $0.scope)
-      }
-    ).filter { interval.contains($0.mergedAt) }
+    return roster.pullRequests.filter { interval.contains($0.mergedAt) }
   }
 
-  private var countedOwners: [String] {
-    connections.flatMap { account in
-      account.snapshot.visibleRepositories.filter(account.scope.includes).map(\.owner)
-    }
-  }
-
-  private func isPersonal(_ owner: String) -> Bool {
-    personalLogins.contains { $0.caseInsensitiveCompare(owner) == .orderedSame }
-  }
-
-  var organizations: [String] {
-    let owners = countedOwners.filter { !isPersonal($0) }
-    return Dictionary(owners.map { (OrganizationPreferences.key($0), $0) }) { first, _ in first }
-      .values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-  }
+  var organizations: [String] { roster.organizations }
 
   func isPerson(_ owner: String) -> Bool {
-    connections.flatMap(\.snapshot.visibleRepositories).contains {
-      $0.owner.caseInsensitiveCompare(owner) == .orderedSame && $0.ownerKind != .organization
-    }
+    roster.people.contains(OrganizationPreferences.key(owner))
   }
 
   var sidebarOrganizations: [String] {
@@ -250,7 +266,7 @@ final class AppModel {
     } + organizations.filter { !isPinned($0) }
   }
 
-  var countsPersonal: Bool { countedOwners.contains(where: isPersonal) }
+  var countsPersonal: Bool { roster.countsPersonal }
 
   var opensWindowAtLaunch: Bool { connections.isEmpty || isPreview }
 
@@ -322,7 +338,7 @@ final class AppModel {
     filter.pullRequests(in: pullRequests, personalLogins: personalLogins)
   }
 
-  private var personalLogins: Set<String> { Set(connections.map(\.profile.login)) }
+  private var personalLogins: Set<String> { roster.personalLogins }
 
   var lastUpdated: Date? { connections.map { $0.snapshot.fetchedAt }.min() }
   var errors: [String] {
@@ -360,8 +376,10 @@ final class AppModel {
 
   func rename(_ label: String, id: UUID) {
     guard let index = connections.firstIndex(where: { $0.id == id }) else { return }
-    let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
-    connections[index].label = name.isEmpty ? connections[index].profile.login : name
+    let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = trimmed.isEmpty ? connections[index].profile.login : trimmed
+    guard connections[index].label != name else { return }
+    connections[index].label = name
     persist()
   }
 
@@ -465,15 +483,19 @@ final class AppModel {
 
   func refreshRepositories() async {
     guard !isPreview else { return }
+    var changed = false
     for (id, result) in await fetch({ client, _ in try await client.repositories() }) {
       guard let index = connections.firstIndex(where: { $0.id == id }) else { continue }
       switch result {
-      case .success(let repositories): connections[index].snapshot.repositories = repositories
+      case .success(let repositories) where repositories != connections[index].snapshot.repositories:
+        connections[index].snapshot.repositories = repositories
+        changed = true
+      case .success: continue
       case .failure(is CancellationError): return
       case .failure(let error): connectionErrors[id] = error.localizedDescription
       }
     }
-    persist()
+    if changed { persist() }
   }
 
   private func fetch<Value: Sendable>(
