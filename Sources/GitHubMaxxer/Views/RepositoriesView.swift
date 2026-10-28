@@ -113,7 +113,6 @@ struct RepositoriesView: View {
             "Connect GitHub to choose which repositories count toward your targets."))
       }
     }
-    .task { await model.refreshRepositories() }
   }
 
   private func owners(of account: AccountConnection) -> [String] {

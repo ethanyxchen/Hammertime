@@ -47,6 +47,36 @@ extension View {
   func findable() -> some View { modifier(Findable()) }
 }
 
+private struct PageStack: NSViewRepresentable {
+  let key: Destination
+  let page: AnyView
+
+  final class Coordinator {
+    var hosts: [Destination: NSHostingView<AnyView>] = [:]
+  }
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  func makeNSView(context: Context) -> NSView { NSView() }
+
+  func updateNSView(_ container: NSView, context: Context) {
+    for (other, host) in context.coordinator.hosts where other != key { host.isHidden = true }
+    let host = context.coordinator.hosts[key] ?? host(in: container, context: context)
+    host.rootView = page
+    host.isHidden = false
+  }
+
+  private func host(in container: NSView, context: Context) -> NSHostingView<AnyView> {
+    let host = NSHostingView(rootView: page)
+    host.sizingOptions = []
+    host.frame = container.bounds
+    host.autoresizingMask = [.width, .height]
+    container.addSubview(host)
+    context.coordinator.hosts[key] = host
+    return host
+  }
+}
+
 struct ConnectionDraft: Identifiable {
   let id = UUID()
   var existing: AccountConnection?
@@ -275,21 +305,29 @@ struct RootView: View {
     }
   }
 
-  @ViewBuilder
   private var content: some View {
+    PageStack(key: model.destination, page: AnyView(page.environment(model)))
+      .task(id: model.destination == .repositories) {
+        if model.destination == .repositories { await model.refreshRepositories() }
+      }
+  }
+
+  @ViewBuilder
+  private var page: some View {
     switch model.destination {
     case .activity(let filter):
       ActivityView(filter: filter, title: title(for: model.destination), search: search)
     case .repositories:
-      VStack(spacing: 0) {
-        PageTitle(title(for: model.destination)).padding([.horizontal, .top], 20)
-        RepositoriesView(search: search)
-      }
+      titled { RepositoriesView(search: search) }
     case .settings:
-      VStack(spacing: 0) {
-        PageTitle(title(for: model.destination)).padding([.horizontal, .top], 20)
-        SettingsView { existing in connectionDraft = ConnectionDraft(existing: existing) }
-      }
+      titled { SettingsView { existing in connectionDraft = ConnectionDraft(existing: existing) } }
+    }
+  }
+
+  private func titled(content: () -> some View) -> some View {
+    VStack(spacing: 0) {
+      PageTitle(title(for: model.destination)).padding([.horizontal, .top], 20)
+      content()
     }
   }
 }
