@@ -97,6 +97,25 @@ struct ActivityTests {
     #expect(GoalPeriod.day.count(in: pulls, now: now, calendar: calendar) == 1)
   }
 
+  @Test func daysBucketByLocalDateAndTheBusiestPrefersTheLatestTie() {
+    let now = date("2026-09-30T12:00:00Z")
+    let pulls = [
+      pull("old", "2026-09-26T10:00:00Z"),
+      pull("early-a", "2026-09-28T10:00:00Z"),
+      pull("early-b", "2026-09-28T11:00:00Z"),
+      pull("late-a", "2026-09-29T22:59:59Z"),
+      pull("late-b", "2026-09-29T08:00:00Z"),
+      pull("today", "2026-09-29T23:00:00Z"),
+      pull("future", "2026-09-30T13:00:00Z"),
+    ]
+    let days = Activity.days(3, of: pulls, endingAt: now, calendar: calendar)
+    #expect(days.map(\.count) == [2, 2, 1])
+    #expect(days.last?.pullRequests.map(\.id) == ["today"])
+    #expect(days.busiest?.date == days[1].date)
+    #expect([ActivityDay]().busiest == nil)
+    #expect(Activity.days(2, of: [], endingAt: now, calendar: calendar).busiest == nil)
+  }
+
   @Test func weeksBeginMondayRegardlessOfLocale() {
     let now = date("2026-09-28T12:00:00Z")
     let pulls = [

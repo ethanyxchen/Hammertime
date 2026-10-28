@@ -134,6 +134,20 @@ public enum ActivityFilter: Hashable, Sendable {
   }
 }
 
+public struct ActivityDay: Sendable, Identifiable {
+  public let date: Date
+  public let pullRequests: [MergedPullRequest]
+
+  public var id: Date { date }
+  public var count: Int { pullRequests.count }
+}
+
+extension Array where Element == ActivityDay {
+  public var busiest: ActivityDay? {
+    filter { $0.count > 0 }.max { ($0.count, $0.date) < ($1.count, $1.date) }
+  }
+}
+
 public enum Activity {
   public static let historyDays = 90
   public static let pageDays = 7
@@ -145,6 +159,21 @@ public enum Activity {
     let start = calendar.startOfDay(
       for: calendar.date(byAdding: .day, value: 1 - historyDays, to: now)!)
     return DateInterval(start: start, end: now)
+  }
+
+  public static func days(
+    _ count: Int, of pullRequests: [MergedPullRequest], endingAt now: Date,
+    calendar: Calendar = .current
+  ) -> [ActivityDay] {
+    let today = calendar.startOfDay(for: now)
+    let merged = Dictionary(grouping: pullRequests.filter { $0.mergedAt <= now }) {
+      calendar.startOfDay(for: $0.mergedAt)
+    }
+    return (0..<count).reversed().map { offset in
+      let date = calendar.startOfDay(
+        for: calendar.date(byAdding: .day, value: -offset, to: today)!)
+      return ActivityDay(date: date, pullRequests: merged[date] ?? [])
+    }
   }
 
   public static func page(_ index: Int, endingAt now: Date, calendar: Calendar = .current)

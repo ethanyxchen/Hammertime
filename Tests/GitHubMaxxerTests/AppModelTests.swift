@@ -337,6 +337,32 @@ struct AppModelTests {
     #expect(reloaded.organizationPreferences == saved)
   }
 
+  @Test func countsOnlyNeverReachesATarget() throws {
+    let model = AppModel(preview: true)
+    let pulls = model.pullRequests
+    try #require(model.pullRequests(for: .personal).count >= 1)
+    model.setDailyGoal(1, for: .personal)
+    #expect(model.isReached(.day, in: pulls, filter: .personal))
+    model.setCountsOnly(true)
+    #expect(!model.isReached(.day, in: pulls, filter: .personal))
+  }
+
+  @Test func countsOnlySyncsAndDefaultsOffForOlderSettings() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, _, token) = try syncingModel(in: directory)
+
+    model.setCountsOnly(true)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.countsOnly == true)
+    let older = try JSONDecoder().decode(
+      Workspaces.self,
+      from: Data(#"{"personal":{"goals":{"daily":2},"colour":"plum"},"organizations":{}}"#.utf8))
+    #expect(!older.countsOnly)
+    #expect(older.personal.goals == Goals(daily: 2))
+  }
+
   @Test func syncCreatesTheGistFromLocalSettingsAndPushesChanges() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
