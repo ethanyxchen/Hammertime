@@ -86,7 +86,7 @@ struct ActivityView: View {
           mostProductive
         }
         .fixedSize(horizontal: false, vertical: true)
-        heatmap.frame(maxWidth: 280, alignment: .leading)
+        heatmap.frame(maxWidth: 360, alignment: .leading)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -389,12 +389,10 @@ private struct Heatmap: View {
   let best: Date?
   @State private var hovered: Int?
   @State private var width: CGFloat = 0
+  private static let rows = 5
   private static let spacing: CGFloat = 4
 
-  private var lead: Int {
-    days.first.map { (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 } ?? 0
-  }
-  private var columns: Int { (lead + days.count + 6) / 7 }
+  private var columns: Int { (days.count + Self.rows - 1) / Self.rows }
   private var pitch: CGFloat { (width + Self.spacing) / CGFloat(max(columns, 1)) }
 
   var body: some View {
@@ -402,7 +400,7 @@ private struct Heatmap: View {
     return HStack(alignment: .top, spacing: Self.spacing) {
       ForEach(0..<columns, id: \.self) { column in
         VStack(spacing: Self.spacing) {
-          ForEach(0..<7, id: \.self) { row in square(column * 7 + row - lead) }
+          ForEach(0..<Self.rows, id: \.self) { row in square(column * Self.rows + row) }
         }
       }
     }
@@ -446,14 +444,14 @@ private struct Heatmap: View {
     guard pitch > 0, point.x >= 0, point.y >= 0 else { return nil }
     let column = Int(point.x / pitch)
     let row = Int(point.y / pitch)
-    let index = column * 7 + row - lead
-    return column < columns && row < 7 && days.indices.contains(index) ? index : nil
+    let index = column * Self.rows + row
+    return column < columns && row < Self.rows && days.indices.contains(index) ? index : nil
   }
 
   private func tooltip(_ index: Int) -> some View {
     let day = days[index]
-    let center = CGFloat((index + lead) / 7) * pitch + (pitch - Self.spacing) / 2
-    let top = CGFloat((index + lead) % 7) * pitch
+    let center = CGFloat(index / Self.rows) * pitch + (pitch - Self.spacing) / 2
+    let top = CGFloat(index % Self.rows) * pitch
     let width = width
     return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
       .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
