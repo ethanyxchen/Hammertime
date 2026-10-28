@@ -322,6 +322,7 @@ struct RootView: View {
       key: model.destination, keys: Destination.all(through: model.activities),
       page: AnyView(page.environment(model))
     )
+    .ignoresSafeArea(edges: .top)
     .task(id: model.destination) {
       if model.destination == .repositories { await model.refreshRepositories() }
     }
