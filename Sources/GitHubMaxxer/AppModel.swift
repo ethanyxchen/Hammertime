@@ -14,7 +14,7 @@ struct AccountConnection: Codable, Identifiable {
   var profileURL: URL { URL(string: "https://github.com/\(profile.login)")! }
 }
 
-struct Roster {
+private struct Roster {
   let personalLogins: Set<String>
   let pullRequests: [MergedPullRequest]
   let organizations: [String]
@@ -376,10 +376,10 @@ final class AppModel {
 
   func rename(_ label: String, id: UUID) {
     guard let index = connections.firstIndex(where: { $0.id == id }) else { return }
-    let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
-    let label = name.isEmpty ? connections[index].profile.login : name
-    guard connections[index].label != label else { return }
-    connections[index].label = label
+    let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = trimmed.isEmpty ? connections[index].profile.login : trimmed
+    guard connections[index].label != name else { return }
+    connections[index].label = name
     persist()
   }
 
