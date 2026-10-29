@@ -103,7 +103,6 @@ struct RootView: View {
   @State private var newName = ""
   @State private var showsShortcuts = false
   @State private var search = ""
-  @State private var isSidebarCollapsed = false
   @AppStorage(LoginItem.offeredKey) private var hasOfferedLoginItem = false
 
   var body: some View {
@@ -158,7 +157,7 @@ struct RootView: View {
     }
     .onChange(of: appearsActive, initial: true) { _, active in model.setFocused(active) }
     .onDisappear { model.setFocused(false) }
-    .frame(minWidth: isSidebarCollapsed ? 860 : 1130, minHeight: 680)
+    .frame(minWidth: 860, minHeight: 680)
   }
 
   private var navigation: some View {
@@ -179,7 +178,7 @@ struct RootView: View {
       }
       .scrollContentBackground(.hidden)
       .background(Palette.sidebar)
-      .background(SidebarResizeBehavior { isSidebarCollapsed = $0 })
+      .background(SidebarResizeBehavior(minimumWidthWithSidebar: 1130))
       .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 270)
       .safeAreaInset(edge: .bottom, spacing: 0) {
         SidebarFooter(isSelected: model.destination == .settings) { model.destination = .settings }

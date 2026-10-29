@@ -78,16 +78,16 @@ struct ActivityView: View {
 
   private func dayTally(_ title: String, _ day: ActivityDay?) -> some View {
     let count = day?.count ?? 0
-    let split = day.map { filter == .all ? self.split($0.pullRequests) : [] } ?? []
+    let split = day.map { self.split($0.pullRequests) } ?? []
     return tallyColumn(title) {
       HStack(alignment: .lastTextBaseline, spacing: 14) {
-        Text(padded(count)).font(.readout(56))
+        Text(padded(count)).font(.readout(56)).fixedSize()
         if !split.isEmpty {
           Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
             ForEach(Array(split.enumerated()), id: \.offset) { _, row in
               GridRow {
-                Text(row.title)
-                Text(String(row.count)).gridColumnAlignment(.trailing)
+                Text(row.title).lineLimit(1).truncationMode(.middle)
+                Text(String(row.count)).fixedSize().gridColumnAlignment(.trailing)
               }
             }
           }
@@ -95,7 +95,6 @@ struct ActivityView: View {
         }
       }
     }
-    .fixedSize(horizontal: true, vertical: false)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "\(title): \(count) merged \(count == 1 ? "PR" : "PRs")"
@@ -104,19 +103,34 @@ struct ActivityView: View {
 
   private func tallyColumn(_ title: String, @ViewBuilder content: () -> some View) -> some View {
     VStack(alignment: .leading, spacing: 0) {
-      Eyebrow(title)
+      Eyebrow(title).lineLimit(1)
       Spacer(minLength: 16)
       content()
     }
   }
 
   private func split(_ pulls: [MergedPullRequest]) -> [(title: String, count: Int)] {
-    let rows = model.workspaces.map {
-      (title: model.title(for: $0), count: model.pullRequests(for: $0, in: pulls).count)
+    let rows: [(title: String, count: Int)]
+    if filter == .all {
+      let workspaces = model.workspaces.map {
+        (title: model.title(for: $0), count: model.pullRequests(for: $0, in: pulls).count)
+      }
+      let other = pulls.count - workspaces.map(\.count).reduce(0, +)
+      rows = workspaces + (other > 0 ? [(title: "Other", count: other)] : [])
+    } else {
+      rows = Dictionary(grouping: pulls, by: \.repository.name)
+        .map { (title: $0.key, count: $0.value.count) }
+        .sorted { $0.count != $1.count ? $0.count > $1.count : $0.title < $1.title }
     }
-    let other = pulls.count - rows.map(\.count).reduce(0, +)
-    let split = rows + (other > 0 ? [(title: "Other", count: other)] : [])
-    return split.count > 1 ? split : []
+    guard rows.count > (filter == .all ? 1 : 0) else { return [] }
+    guard rows.count > 3 else { return rows }
+    let top = rows.enumerated()
+      .sorted {
+        $0.element.count != $1.element.count
+          ? $0.element.count > $1.element.count : $0.offset < $1.offset
+      }
+      .prefix(2).map(\.element)
+    return top + [(title: "Other", count: pulls.count - top.map(\.count).reduce(0, +))]
   }
 
   private func standing(_ period: GoalPeriod, in pulls: [MergedPullRequest]) -> Standing {
@@ -328,7 +342,7 @@ private func dayLabel(_ date: Date) -> String {
 }
 
 private struct TallyLayout: Layout {
-  var minimumGap: CGFloat = 24
+  var gap: CGFloat = 32
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     let columns = columns(width: proposal.width, subviews: subviews)
@@ -353,10 +367,13 @@ private struct TallyLayout: Layout {
   ) {
     let sizes = subviews.dropLast().map { $0.sizeThatFits(.unspecified) }
     let height = sizes.map(\.height).max() ?? 0
-    let widths = sizes.map(\.width) + [Heatmap.width(forHeight: height)]
-    let gaps = CGFloat(max(subviews.count - 1, 1))
-    let width = width ?? widths.reduce(0, +) + gaps * minimumGap
-    return (widths, (width - widths.reduce(0, +)) / gaps, width, height)
+    let heatmap = Heatmap.width(forHeight: height)
+    let rules = sizes.map(\.width).filter { $0 <= 1 }
+    let cells = sizes.map(\.width).filter { $0 > 1 }
+    let fixed = rules.reduce(0, +) + heatmap + CGFloat(subviews.count - 1) * gap
+    let width = width ?? fixed + (cells.max() ?? 0) * CGFloat(cells.count)
+    let cell = max(0, (width - fixed) / CGFloat(max(cells.count, 1)))
+    return (sizes.map { $0.width <= 1 ? $0.width : cell } + [heatmap], gap, width, height)
   }
 }
 
