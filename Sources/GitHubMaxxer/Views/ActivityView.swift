@@ -67,43 +67,27 @@ struct ActivityView: View {
   private func tally(_ pulls: [MergedPullRequest]) -> some View {
     let days = Activity.days(Activity.historyDays, of: pulls, endingAt: model.now)
     let best = Array(days.suffix(30)).busiest
-    let today = dayTally("Today", days.last)
-    let mostProductive = dayTally(
-      best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
-    let heatmap = tallyColumn("Last \(days.count) days") { Heatmap(days: days, best: best?.date) }
-    return ViewThatFits(in: .horizontal) {
-      TallyLayout {
-        today
-        Rule(vertical: true)
-        mostProductive
-        Rule(vertical: true)
-        heatmap
-      }
-      VStack(alignment: .leading, spacing: 28) {
-        HStack(alignment: .top, spacing: 32) {
-          today
-          Rule(vertical: true)
-          mostProductive
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        heatmap.frame(maxWidth: 280, alignment: .leading)
-      }
+    return TallyLayout {
+      dayTally("Today", days.last)
+      Rule(vertical: true)
+      dayTally(best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
+      Rule(vertical: true)
+      Heatmap(days: days, best: best?.date)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func dayTally(_ title: String, _ day: ActivityDay?) -> some View {
     let count = day?.count ?? 0
-    let split = day.map { filter == .all ? self.split($0.pullRequests) : [] } ?? []
+    let split = day.map { self.split($0.pullRequests) } ?? []
     return tallyColumn(title) {
       HStack(alignment: .lastTextBaseline, spacing: 14) {
-        Text(padded(count)).font(.readout(56))
+        Text(padded(count)).font(.readout(56)).fixedSize()
         if !split.isEmpty {
           Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
             ForEach(Array(split.enumerated()), id: \.offset) { _, row in
               GridRow {
-                Text(row.title)
-                Text(String(row.count)).gridColumnAlignment(.trailing)
+                Text(row.title).lineLimit(1).truncationMode(.tail)
+                Text(String(row.count)).fixedSize().gridColumnAlignment(.trailing)
               }
             }
           }
@@ -111,7 +95,6 @@ struct ActivityView: View {
         }
       }
     }
-    .fixedSize(horizontal: true, vertical: false)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "\(title): \(count) merged \(count == 1 ? "PR" : "PRs")"
@@ -120,19 +103,35 @@ struct ActivityView: View {
 
   private func tallyColumn(_ title: String, @ViewBuilder content: () -> some View) -> some View {
     VStack(alignment: .leading, spacing: 0) {
-      Eyebrow(title)
+      Eyebrow(title).lineLimit(1)
       Spacer(minLength: 16)
       content()
     }
   }
 
   private func split(_ pulls: [MergedPullRequest]) -> [(title: String, count: Int)] {
-    let rows = model.workspaces.map {
-      (title: model.title(for: $0), count: model.pullRequests(for: $0, in: pulls).count)
+    var rows: [(title: String, count: Int)]
+    if filter == .all {
+      rows = model.workspaces.map {
+        (title: model.title(for: $0), count: model.pullRequests(for: $0, in: pulls).count)
+      }
+    } else {
+      rows = Dictionary(grouping: pulls, by: \.repository.nameWithOwner).values
+        .map { (title: $0[0].repository.name, count: $0.count) }
+        .sorted { $0.count != $1.count ? $0.count > $1.count : $0.title < $1.title }
+    }
+    let attributed = rows.map(\.count).reduce(0, +)
+    if rows.count + (pulls.count > attributed ? 1 : 0) > 3 {
+      rows = rows.enumerated()
+        .sorted {
+          $0.element.count != $1.element.count
+            ? $0.element.count > $1.element.count : $0.offset < $1.offset
+        }
+        .prefix(2).map(\.element)
     }
     let other = pulls.count - rows.map(\.count).reduce(0, +)
     let split = rows + (other > 0 ? [(title: "Other", count: other)] : [])
-    return split.count > 1 ? split : []
+    return split.count > (filter == .all ? 1 : 0) ? split : []
   }
 
   private func standing(_ period: GoalPeriod, in pulls: [MergedPullRequest]) -> Standing {
@@ -344,9 +343,7 @@ private func dayLabel(_ date: Date) -> String {
 }
 
 private struct TallyLayout: Layout {
-  var heatmapShare: CGFloat = 0.4
-  var minimumGap: CGFloat = 24
-  var minimumHeatmap: CGFloat = 220
+  var gap: CGFloat = 32
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     let columns = columns(width: proposal.width, subviews: subviews)
@@ -369,18 +366,15 @@ private struct TallyLayout: Layout {
   private func columns(width: CGFloat?, subviews: Subviews) -> (
     widths: [CGFloat], gap: CGFloat, width: CGFloat, height: CGFloat
   ) {
-    var widths = subviews.dropLast().map { $0.sizeThatFits(.unspecified).width }
-    let fixed = widths.reduce(0, +)
-    let gaps = CGFloat(max(subviews.count - 1, 1))
-    let available = width ?? 0
-    widths.append(
-      max(minimumHeatmap, min(available * heatmapShare, available - fixed - gaps * minimumGap)))
-    let width = max(available, widths.reduce(0, +) + gaps * minimumGap)
-    let height =
-      zip(subviews, widths).map {
-        $0.sizeThatFits(ProposedViewSize(width: $1, height: nil)).height
-      }.max() ?? 0
-    return (widths, (width - widths.reduce(0, +)) / gaps, width, height)
+    let sizes = subviews.dropLast().map { $0.sizeThatFits(.unspecified) }
+    let height = sizes.map(\.height).max() ?? 0
+    let heatmap = Heatmap.width(forHeight: height)
+    let rules = sizes.map(\.width).filter { $0 <= 1 }
+    let cells = sizes.map(\.width).filter { $0 > 1 }
+    let fixed = rules.reduce(0, +) + heatmap + CGFloat(subviews.count - 1) * gap
+    let width = width ?? fixed + (cells.max() ?? 0) * CGFloat(cells.count)
+    let cell = max(0, (width - fixed) / CGFloat(max(cells.count, 1)))
+    return (sizes.map { $0.width <= 1 ? $0.width : cell } + [heatmap], gap, width, height)
   }
 }
 
@@ -389,20 +383,28 @@ private struct Heatmap: View {
   let best: Date?
   @State private var hovered: Int?
   @State private var width: CGFloat = 0
-  private static let spacing: CGFloat = 4
+  nonisolated private static let rows = 7
+  nonisolated private static let columns = 13
+  nonisolated private static let spacing: CGFloat = 4
 
-  private var lead: Int {
-    days.first.map { (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 } ?? 0
+  nonisolated static func width(forHeight height: CGFloat) -> CGFloat {
+    (height + spacing) / CGFloat(rows) * CGFloat(columns) - spacing
   }
-  private var columns: Int { (lead + days.count + 6) / 7 }
-  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(max(columns, 1)) }
+
+  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(Self.columns) }
+
+  private var offset: Int {
+    let weekday = days.last.map { (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 }
+    return (Self.columns - 1) * Self.rows + (weekday ?? Self.rows - 1) - (days.count - 1)
+  }
 
   var body: some View {
-    let total = days.map(\.count).reduce(0, +)
+    let shown = days.dropFirst(max(0, -offset))
+    let total = shown.map(\.count).reduce(0, +)
     return HStack(alignment: .top, spacing: Self.spacing) {
-      ForEach(0..<columns, id: \.self) { column in
+      ForEach(0..<Self.columns, id: \.self) { column in
         VStack(spacing: Self.spacing) {
-          ForEach(0..<7, id: \.self) { row in square(column * 7 + row - lead) }
+          ForEach(0..<Self.rows, id: \.self) { row in square(column * Self.rows + row - offset) }
         }
       }
     }
@@ -422,7 +424,7 @@ private struct Heatmap: View {
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "Last \(days.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
+      "Last \(shown.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
   }
 
   private func square(_ index: Int) -> some View {
@@ -446,14 +448,14 @@ private struct Heatmap: View {
     guard pitch > 0, point.x >= 0, point.y >= 0 else { return nil }
     let column = Int(point.x / pitch)
     let row = Int(point.y / pitch)
-    let index = column * 7 + row - lead
-    return column < columns && row < 7 && days.indices.contains(index) ? index : nil
+    let index = column * Self.rows + row - offset
+    return column < Self.columns && row < Self.rows && days.indices.contains(index) ? index : nil
   }
 
   private func tooltip(_ index: Int) -> some View {
     let day = days[index]
-    let center = CGFloat((index + lead) / 7) * pitch + (pitch - Self.spacing) / 2
-    let top = CGFloat((index + lead) % 7) * pitch
+    let center = CGFloat((index + offset) / Self.rows) * pitch + (pitch - Self.spacing) / 2
+    let top = CGFloat((index + offset) % Self.rows) * pitch
     let width = width
     return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
       .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
