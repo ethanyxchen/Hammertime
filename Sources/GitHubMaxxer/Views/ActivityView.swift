@@ -27,13 +27,15 @@ struct ActivityView: View {
 
   var body: some View {
     let pulls = model.pullRequests(for: filter)
+    let summary = progress(pulls).padding(.top, 24).padding(.bottom, 32)
+    let entries = log(days(in: pulls)).padding(.vertical, 20).id("log")
     return GeometryReader { viewport in
       ScrollViewReader { proxy in
         ScrollView {
           VStack(spacing: 0) {
             PageTitle(title).padding(.top, 28)
-            progress(pulls).padding(.top, 24).padding(.bottom, 32)
-            log(days(in: pulls)).padding(.vertical, 20).id("log")
+            summary
+            entries
             Spacer(minLength: 0)
             if search.isEmpty { pager(proxy).padding(.bottom, 28) }
           }
@@ -43,7 +45,6 @@ struct ActivityView: View {
         }
       }
     }
-    .background(Palette.panel)
     .foregroundStyle(Palette.ink)
   }
 

@@ -13,6 +13,10 @@ enum Destination: Hashable {
     }
   }
 
+  var background: Color? {
+    if case .activity = self { Palette.panel } else { nil }
+  }
+
   var symbol: String {
     switch self {
     case .activity(.all): "square.stack"
@@ -62,9 +66,9 @@ private struct PageStack: NSViewRepresentable {
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
-  func makeNSView(context: Context) -> NSView { NSView() }
+  func makeNSView(context: Context) -> PageContainer { PageContainer() }
 
-  func updateNSView(_ container: NSView, context: Context) {
+  func updateNSView(_ container: PageContainer, context: Context) {
     for (other, host) in context.coordinator.hosts where other != key {
       guard keys.contains(other) else {
         host.removeFromSuperview()
@@ -76,16 +80,118 @@ private struct PageStack: NSViewRepresentable {
     let host = context.coordinator.hosts[key] ?? host(in: container, context: context)
     host.rootView = page
     host.isHidden = false
+    container.fill = key.background
+    container.observeSidebar()
+    container.place(host)
   }
 
-  private func host(in container: NSView, context: Context) -> NSHostingView<AnyView> {
+  private func host(in container: PageContainer, context: Context) -> NSHostingView<AnyView> {
     let host = NSHostingView(rootView: page)
     host.sizingOptions = []
-    host.frame = container.bounds
-    host.autoresizingMask = [.width, .height]
     container.addSubview(host)
     context.coordinator.hosts[key] = host
     return host
+  }
+}
+
+private final class PageContainer: NSView {
+  var fill: Color? {
+    didSet { if fill != oldValue { needsDisplay = true } }
+  }
+  private var pinnedWidth: CGFloat?
+  private var unpin: DispatchWorkItem?
+  private var observation: NSKeyValueObservation?
+
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    wantsLayer = true
+    clipsToBounds = true
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override var wantsUpdateLayer: Bool { true }
+
+  override func updateLayer() {
+    effectiveAppearance.performAsCurrentDrawingAppearance {
+      layer?.backgroundColor = fill.map { NSColor($0).cgColor }
+    }
+  }
+
+  override func viewWillMove(toWindow newWindow: NSWindow?) {
+    super.viewWillMove(toWindow: newWindow)
+    guard newWindow !== window else { return }
+    observation?.invalidate()
+    observation = nil
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    observeSidebar()
+  }
+
+  func observeSidebar() {
+    guard observation == nil, let sidebar = enclosingSplitView?.sidebarItem else { return }
+    observation = sidebar.observe(\.isCollapsed, options: [.new]) { [weak self] _, change in
+      guard let isCollapsed = change.newValue else { return }
+      MainActor.assumeIsolated { self?.sidebarWillToggle(isCollapsed: isCollapsed) }
+    }
+  }
+
+  private func sidebarWillToggle(isCollapsed: Bool) {
+    guard let splitView = enclosingSplitView, let sidebar = splitView.sidebarItem else { return }
+    pin(splitView.bounds.width - (isCollapsed ? 0 : sidebar.viewController.view.frame.width))
+  }
+
+  override func resizeSubviews(withOldSize oldSize: NSSize) {
+    if let pinnedWidth {
+      let remaining = abs(bounds.width - pinnedWidth)
+      if window?.inLiveResize == true || remaining < 0.5
+        || remaining > abs(oldSize.width - pinnedWidth)
+      {
+        self.pinnedWidth = nil
+      } else {
+        scheduleUnpin()
+      }
+    }
+    placeHosts()
+  }
+
+  func place(_ host: NSView) {
+    guard let pinnedWidth else {
+      host.frame = bounds
+      return
+    }
+    host.frame = NSRect(
+      x: bounds.maxX - pinnedWidth, y: bounds.minY, width: pinnedWidth, height: bounds.height)
+  }
+
+  private func placeHosts() {
+    for host in subviews where !host.isHidden { place(host) }
+  }
+
+  private func pin(_ width: CGFloat) {
+    unpin?.cancel()
+    guard window?.inLiveResize == false, width > 0, abs(width - bounds.width) >= 0.5 else {
+      pinnedWidth = nil
+      placeHosts()
+      return
+    }
+    pinnedWidth = width
+    placeHosts()
+    scheduleUnpin()
+  }
+
+  private func scheduleUnpin() {
+    unpin?.cancel()
+    let unpin = DispatchWorkItem { [weak self] in
+      guard let self, pinnedWidth != nil else { return }
+      pinnedWidth = nil
+      placeHosts()
+    }
+    self.unpin = unpin
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + NSAnimationContext.current.duration + 0.1, execute: unpin)
   }
 }
 

@@ -33,12 +33,7 @@ struct SidebarResizeBehavior: NSViewRepresentable {
     }
 
     func configure() {
-      let splitView =
-        sequence(first: self as NSView, next: { $0.superview })
-        .first { $0 is NSSplitView } as? NSSplitView
-      guard let controller = splitView?.delegate as? NSSplitViewController,
-        let sidebar = controller.splitViewItems.first(where: { $0.behavior == .sidebar }),
-        let contentView = window?.contentView
+      guard let sidebar = enclosingSplitView?.sidebarItem, let contentView = window?.contentView
       else { return }
       if sidebar.collapseBehavior != .useConstraints { sidebar.collapseBehavior = .useConstraints }
       guard observation == nil else { return }
