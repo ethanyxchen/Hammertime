@@ -37,15 +37,18 @@ jobs:
           NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           export NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8"
           printf '%s' "$NOTARY_KEY" >"$NOTARY_KEY_PATH"
+          export SPARKLE_PRIVATE_KEY_PATH="$RUNNER_TEMP/sparkle.key"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" >"$SPARKLE_PRIVATE_KEY_PATH"
           ./scripts/release-app.sh
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" build/Hammertime-*.zip --generate-notes --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" build/Hammertime-*.zip build/appcast.xml --generate-notes --verify-tag
 
       - name: Update Homebrew tap
         env:
@@ -70,6 +73,7 @@ jobs:
             desc "Track the pull requests you merge against daily targets"
             homepage "https://github.com/$GITHUB_REPOSITORY"
 
+            auto_updates true
             depends_on macos: :tahoe
 
             app "Hammertime.app"

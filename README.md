@@ -12,7 +12,7 @@ Requires macOS 26 or newer.
 brew install --cask ethanyxchen/tap/hammertime
 ```
 
-Update to the latest release with `brew upgrade --cask hammertime`.
+Hammertime checks for updates itself and installs them from **Settings** or the **Check for Updates…** menu item.
 
 ## Connect GitHub
 
