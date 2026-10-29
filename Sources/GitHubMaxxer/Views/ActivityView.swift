@@ -72,7 +72,7 @@ struct ActivityView: View {
       Rule(vertical: true)
       dayTally(best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
       Rule(vertical: true)
-      tallyColumn("Last \(days.count) days") { Heatmap(days: days, best: best?.date) }
+      Heatmap(days: days, best: best?.date)
     }
   }
 
@@ -328,7 +328,6 @@ private func dayLabel(_ date: Date) -> String {
 }
 
 private struct TallyLayout: Layout {
-  var heatmapShare: CGFloat = 0.4
   var minimumGap: CGFloat = 24
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -352,15 +351,11 @@ private struct TallyLayout: Layout {
   private func columns(width: CGFloat?, subviews: Subviews) -> (
     widths: [CGFloat], gap: CGFloat, width: CGFloat, height: CGFloat
   ) {
-    var widths = subviews.dropLast().map { $0.sizeThatFits(.unspecified).width }
-    let fixed = widths.reduce(0, +)
+    let sizes = subviews.dropLast().map { $0.sizeThatFits(.unspecified) }
+    let height = sizes.map(\.height).max() ?? 0
+    let widths = sizes.map(\.width) + [Heatmap.width(forHeight: height)]
     let gaps = CGFloat(max(subviews.count - 1, 1))
-    let width = width ?? (fixed + gaps * minimumGap) / (1 - heatmapShare)
-    widths.append(max(0, min(width * heatmapShare, width - fixed - gaps * minimumGap)))
-    let height =
-      zip(subviews, widths).map {
-        $0.sizeThatFits(ProposedViewSize(width: $1, height: nil)).height
-      }.max() ?? 0
+    let width = width ?? widths.reduce(0, +) + gaps * minimumGap
     return (widths, (width - widths.reduce(0, +)) / gaps, width, height)
   }
 }
@@ -370,18 +365,28 @@ private struct Heatmap: View {
   let best: Date?
   @State private var hovered: Int?
   @State private var width: CGFloat = 0
-  private static let rows = 5
-  private static let spacing: CGFloat = 4
+  nonisolated private static let rows = 7
+  nonisolated private static let columns = 13
+  nonisolated private static let spacing: CGFloat = 4
 
-  private var columns: Int { (days.count + Self.rows - 1) / Self.rows }
-  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(max(columns, 1)) }
+  nonisolated static func width(forHeight height: CGFloat) -> CGFloat {
+    (height + spacing) / CGFloat(rows) * CGFloat(columns) - spacing
+  }
+
+  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(Self.columns) }
+
+  private var offset: Int {
+    let weekday = days.last.map { (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 }
+    return (Self.columns - 1) * Self.rows + (weekday ?? Self.rows - 1) - (days.count - 1)
+  }
 
   var body: some View {
-    let total = days.map(\.count).reduce(0, +)
+    let shown = days.dropFirst(max(0, -offset))
+    let total = shown.map(\.count).reduce(0, +)
     return HStack(alignment: .top, spacing: Self.spacing) {
-      ForEach(0..<columns, id: \.self) { column in
+      ForEach(0..<Self.columns, id: \.self) { column in
         VStack(spacing: Self.spacing) {
-          ForEach(0..<Self.rows, id: \.self) { row in square(column * Self.rows + row) }
+          ForEach(0..<Self.rows, id: \.self) { row in square(column * Self.rows + row - offset) }
         }
       }
     }
@@ -401,7 +406,7 @@ private struct Heatmap: View {
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "Last \(days.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
+      "Last \(shown.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
   }
 
   private func square(_ index: Int) -> some View {
@@ -425,14 +430,14 @@ private struct Heatmap: View {
     guard pitch > 0, point.x >= 0, point.y >= 0 else { return nil }
     let column = Int(point.x / pitch)
     let row = Int(point.y / pitch)
-    let index = column * Self.rows + row
-    return column < columns && row < Self.rows && days.indices.contains(index) ? index : nil
+    let index = column * Self.rows + row - offset
+    return column < Self.columns && row < Self.rows && days.indices.contains(index) ? index : nil
   }
 
   private func tooltip(_ index: Int) -> some View {
     let day = days[index]
-    let center = CGFloat(index / Self.rows) * pitch + (pitch - Self.spacing) / 2
-    let top = CGFloat(index % Self.rows) * pitch
+    let center = CGFloat((index + offset) / Self.rows) * pitch + (pitch - Self.spacing) / 2
+    let top = CGFloat((index + offset) % Self.rows) * pitch
     let width = width
     return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
       .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
