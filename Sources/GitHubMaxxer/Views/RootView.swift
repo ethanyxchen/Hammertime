@@ -62,9 +62,9 @@ private struct PageStack: NSViewRepresentable {
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
-  func makeNSView(context: Context) -> NSView { NSView() }
+  func makeNSView(context: Context) -> PageContainer { PageContainer() }
 
-  func updateNSView(_ container: NSView, context: Context) {
+  func updateNSView(_ container: PageContainer, context: Context) {
     for (other, host) in context.coordinator.hosts where other != key {
       guard keys.contains(other) else {
         host.removeFromSuperview()
@@ -76,16 +76,106 @@ private struct PageStack: NSViewRepresentable {
     let host = context.coordinator.hosts[key] ?? host(in: container, context: context)
     host.rootView = page
     host.isHidden = false
+    container.fill = if case .activity = key { NSColor(Palette.panel) } else { nil }
+    container.place(host)
   }
 
-  private func host(in container: NSView, context: Context) -> NSHostingView<AnyView> {
+  private func host(in container: PageContainer, context: Context) -> NSHostingView<AnyView> {
     let host = NSHostingView(rootView: page)
     host.sizingOptions = []
-    host.frame = container.bounds
-    host.autoresizingMask = [.width, .height]
     container.addSubview(host)
     context.coordinator.hosts[key] = host
     return host
+  }
+}
+
+/// Holds the pages and keeps the shown one at the width it will end at while the sidebar
+/// slides, so a page lays out once per toggle instead of on every animation frame.
+final class PageContainer: NSView {
+  var fill: NSColor? {
+    didSet { needsDisplay = true }
+  }
+  private var pinnedWidth: CGFloat?
+  private var unpin: DispatchWorkItem?
+  private var observation: NSKeyValueObservation?
+  private weak var sidebar: NSSplitViewItem?
+
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    wantsLayer = true
+    clipsToBounds = true
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override var wantsUpdateLayer: Bool { true }
+
+  override func updateLayer() {
+    effectiveAppearance.performAsCurrentDrawingAppearance {
+      layer?.backgroundColor = fill?.cgColor
+    }
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    observation = nil
+    guard
+      let splitView = sequence(first: self as NSView, next: { $0.superview })
+        .first(where: { $0 is NSSplitView }) as? NSSplitView,
+      let controller = splitView.delegate as? NSSplitViewController,
+      let sidebar = controller.splitViewItems.first(where: { $0.behavior == .sidebar })
+    else { return }
+    self.sidebar = sidebar
+    observation = sidebar.observe(\.isCollapsed, options: [.new]) { [weak self] _, change in
+      guard let isCollapsed = change.newValue else { return }
+      MainActor.assumeIsolated { self?.sidebarWillToggle(isCollapsed: isCollapsed) }
+    }
+  }
+
+  private func sidebarWillToggle(isCollapsed: Bool) {
+    guard let sidebar else { return }
+    let width = sidebar.viewController.view.frame.width
+    pin(bounds.width + (isCollapsed ? width : -width))
+  }
+
+  override func resizeSubviews(withOldSize oldSize: NSSize) {
+    if let pinnedWidth, abs(bounds.width - pinnedWidth) < 0.5 {
+      self.pinnedWidth = nil
+    } else if pinnedWidth != nil {
+      scheduleUnpin()
+    }
+    placeHosts()
+  }
+
+  func place(_ host: NSView) {
+    guard let pinnedWidth else {
+      host.frame = bounds
+      return
+    }
+    host.frame = NSRect(
+      x: bounds.maxX - pinnedWidth, y: bounds.minY, width: pinnedWidth, height: bounds.height)
+  }
+
+  private func placeHosts() {
+    for host in subviews where !host.isHidden { place(host) }
+  }
+
+  private func pin(_ width: CGFloat) {
+    guard width > 0, abs(width - bounds.width) >= 0.5 else { return }
+    pinnedWidth = width
+    placeHosts()
+    scheduleUnpin()
+  }
+
+  private func scheduleUnpin() {
+    unpin?.cancel()
+    let unpin = DispatchWorkItem { [weak self] in
+      guard let self, pinnedWidth != nil else { return }
+      pinnedWidth = nil
+      placeHosts()
+    }
+    self.unpin = unpin
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: unpin)
   }
 }
 
