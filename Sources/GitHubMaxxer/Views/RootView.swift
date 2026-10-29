@@ -13,6 +13,10 @@ enum Destination: Hashable {
     }
   }
 
+  var background: Color? {
+    if case .activity = self { Palette.panel } else { nil }
+  }
+
   var symbol: String {
     switch self {
     case .activity(.all): "square.stack"
@@ -76,7 +80,8 @@ private struct PageStack: NSViewRepresentable {
     let host = context.coordinator.hosts[key] ?? host(in: container, context: context)
     host.rootView = page
     host.isHidden = false
-    container.fill = if case .activity = key { NSColor(Palette.panel) } else { nil }
+    container.fill = key.background
+    container.observeSidebar()
     container.place(host)
   }
 
@@ -89,16 +94,13 @@ private struct PageStack: NSViewRepresentable {
   }
 }
 
-/// Holds the pages and keeps the shown one at the width it will end at while the sidebar
-/// slides, so a page lays out once per toggle instead of on every animation frame.
-final class PageContainer: NSView {
-  var fill: NSColor? {
-    didSet { needsDisplay = true }
+private final class PageContainer: NSView {
+  var fill: Color? {
+    didSet { if fill != oldValue { needsDisplay = true } }
   }
   private var pinnedWidth: CGFloat?
   private var unpin: DispatchWorkItem?
   private var observation: NSKeyValueObservation?
-  private weak var sidebar: NSSplitViewItem?
 
   override init(frame: NSRect) {
     super.init(frame: frame)
@@ -112,20 +114,24 @@ final class PageContainer: NSView {
 
   override func updateLayer() {
     effectiveAppearance.performAsCurrentDrawingAppearance {
-      layer?.backgroundColor = fill?.cgColor
+      layer?.backgroundColor = fill.map { NSColor($0).cgColor }
     }
+  }
+
+  override func viewWillMove(toWindow newWindow: NSWindow?) {
+    super.viewWillMove(toWindow: newWindow)
+    guard newWindow !== window else { return }
+    observation?.invalidate()
+    observation = nil
   }
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
-    observation = nil
-    guard
-      let splitView = sequence(first: self as NSView, next: { $0.superview })
-        .first(where: { $0 is NSSplitView }) as? NSSplitView,
-      let controller = splitView.delegate as? NSSplitViewController,
-      let sidebar = controller.splitViewItems.first(where: { $0.behavior == .sidebar })
-    else { return }
-    self.sidebar = sidebar
+    observeSidebar()
+  }
+
+  func observeSidebar() {
+    guard observation == nil, let sidebar = enclosingSplitView?.sidebarItem else { return }
     observation = sidebar.observe(\.isCollapsed, options: [.new]) { [weak self] _, change in
       guard let isCollapsed = change.newValue else { return }
       MainActor.assumeIsolated { self?.sidebarWillToggle(isCollapsed: isCollapsed) }
@@ -133,16 +139,20 @@ final class PageContainer: NSView {
   }
 
   private func sidebarWillToggle(isCollapsed: Bool) {
-    guard let sidebar else { return }
-    let width = sidebar.viewController.view.frame.width
-    pin(bounds.width + (isCollapsed ? width : -width))
+    guard let splitView = enclosingSplitView, let sidebar = splitView.sidebarItem else { return }
+    pin(splitView.bounds.width - (isCollapsed ? 0 : sidebar.viewController.view.frame.width))
   }
 
   override func resizeSubviews(withOldSize oldSize: NSSize) {
-    if let pinnedWidth, abs(bounds.width - pinnedWidth) < 0.5 {
-      self.pinnedWidth = nil
-    } else if pinnedWidth != nil {
-      scheduleUnpin()
+    if let pinnedWidth {
+      let remaining = abs(bounds.width - pinnedWidth)
+      if window?.inLiveResize == true || remaining < 0.5
+        || remaining > abs(oldSize.width - pinnedWidth)
+      {
+        self.pinnedWidth = nil
+      } else {
+        scheduleUnpin()
+      }
     }
     placeHosts()
   }
@@ -161,7 +171,12 @@ final class PageContainer: NSView {
   }
 
   private func pin(_ width: CGFloat) {
-    guard width > 0, abs(width - bounds.width) >= 0.5 else { return }
+    unpin?.cancel()
+    guard window?.inLiveResize == false, width > 0, abs(width - bounds.width) >= 0.5 else {
+      pinnedWidth = nil
+      placeHosts()
+      return
+    }
     pinnedWidth = width
     placeHosts()
     scheduleUnpin()
@@ -175,7 +190,8 @@ final class PageContainer: NSView {
       placeHosts()
     }
     self.unpin = unpin
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: unpin)
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + NSAnimationContext.current.duration + 0.1, execute: unpin)
   }
 }
 

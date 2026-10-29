@@ -7,7 +7,6 @@ struct ActivityView: View {
   let title: String
   let search: String
   @State private var page = 0
-  @State private var viewportHeight: CGFloat = 0
 
   private var interval: DateInterval { Activity.page(page, endingAt: model.now) }
 
@@ -28,22 +27,24 @@ struct ActivityView: View {
 
   var body: some View {
     let pulls = model.pullRequests(for: filter)
-    return ScrollViewReader { proxy in
-      ScrollView {
-        VStack(spacing: 0) {
-          PageTitle(title).padding(.top, 28)
-          progress(pulls).padding(.top, 24).padding(.bottom, 32)
-          log(days(in: pulls)).padding(.vertical, 20).id("log")
-          Spacer(minLength: 0)
-          if search.isEmpty { pager(proxy).padding(.bottom, 28) }
+    let summary = progress(pulls).padding(.top, 24).padding(.bottom, 32)
+    let entries = log(days(in: pulls)).padding(.vertical, 20).id("log")
+    return GeometryReader { viewport in
+      ScrollViewReader { proxy in
+        ScrollView {
+          VStack(spacing: 0) {
+            PageTitle(title).padding(.top, 28)
+            summary
+            entries
+            Spacer(minLength: 0)
+            if search.isEmpty { pager(proxy).padding(.bottom, 28) }
+          }
+          .padding(.horizontal, 40)
+          .frame(maxWidth: model.countsOnly ? 860 : 960, minHeight: viewport.size.height)
+          .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 40)
-        .frame(maxWidth: model.countsOnly ? 860 : 960, minHeight: viewportHeight)
-        .frame(maxWidth: .infinity)
       }
-      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
     }
-    .background(Palette.panel)
     .foregroundStyle(Palette.ink)
   }
 
