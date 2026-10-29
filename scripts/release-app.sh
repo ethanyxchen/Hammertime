@@ -22,6 +22,6 @@ rm -rf "$appcast_directory"
 mkdir -p "$appcast_directory"
 cp "$archive" "$appcast_directory/"
 .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file "$SPARKLE_PRIVATE_KEY_PATH" \
-  --download-url-prefix "https://github.com/ethanyxchen/github-maxxer/releases/download/v$version/" \
-  --link "https://github.com/ethanyxchen/github-maxxer" \
+  --download-url-prefix "https://github.com/ethanyxchen/Hammertime/releases/download/v$version/" \
+  --link "https://github.com/ethanyxchen/Hammertime" \
   -o build/appcast.xml "$appcast_directory"

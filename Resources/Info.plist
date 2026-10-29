@@ -13,7 +13,7 @@
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>LSUIElement</key><true/>
     <key>SUEnableAutomaticChecks</key><true/>
-    <key>SUFeedURL</key><string>https://github.com/ethanyxchen/github-maxxer/releases/latest/download/appcast.xml</string>
+    <key>SUFeedURL</key><string>https://github.com/ethanyxchen/Hammertime/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key><string>vPRtpl5PGmTAI1AypMVJqhObiFQ+T58gkMnifsVCa50=</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticTermination</key><false/>
