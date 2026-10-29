@@ -86,7 +86,7 @@ struct ActivityView: View {
           Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
             ForEach(Array(split.enumerated()), id: \.offset) { _, row in
               GridRow {
-                Text(row.title).lineLimit(1).truncationMode(.middle)
+                Text(row.title).lineLimit(1).truncationMode(.tail)
                 Text(String(row.count)).fixedSize().gridColumnAlignment(.trailing)
               }
             }
