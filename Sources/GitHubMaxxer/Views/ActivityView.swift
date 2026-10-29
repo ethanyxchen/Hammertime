@@ -67,29 +67,13 @@ struct ActivityView: View {
   private func tally(_ pulls: [MergedPullRequest]) -> some View {
     let days = Activity.days(Activity.historyDays, of: pulls, endingAt: model.now)
     let best = Array(days.suffix(30)).busiest
-    let today = dayTally("Today", days.last)
-    let mostProductive = dayTally(
-      best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
-    let heatmap = tallyColumn("Last \(days.count) days") { Heatmap(days: days, best: best?.date) }
-    return ViewThatFits(in: .horizontal) {
-      TallyLayout {
-        today
-        Rule(vertical: true)
-        mostProductive
-        Rule(vertical: true)
-        heatmap
-      }
-      VStack(alignment: .leading, spacing: 28) {
-        HStack(alignment: .top, spacing: 32) {
-          today
-          Rule(vertical: true)
-          mostProductive
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        heatmap.frame(maxWidth: 360, alignment: .leading)
-      }
+    return TallyLayout {
+      dayTally("Today", days.last)
+      Rule(vertical: true)
+      dayTally(best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
+      Rule(vertical: true)
+      tallyColumn("Last \(days.count) days") { Heatmap(days: days, best: best?.date) }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func dayTally(_ title: String, _ day: ActivityDay?) -> some View {
@@ -346,7 +330,6 @@ private func dayLabel(_ date: Date) -> String {
 private struct TallyLayout: Layout {
   var heatmapShare: CGFloat = 0.4
   var minimumGap: CGFloat = 24
-  var minimumHeatmap: CGFloat = 220
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     let columns = columns(width: proposal.width, subviews: subviews)
@@ -372,10 +355,8 @@ private struct TallyLayout: Layout {
     var widths = subviews.dropLast().map { $0.sizeThatFits(.unspecified).width }
     let fixed = widths.reduce(0, +)
     let gaps = CGFloat(max(subviews.count - 1, 1))
-    let available = width ?? 0
-    widths.append(
-      max(minimumHeatmap, min(available * heatmapShare, available - fixed - gaps * minimumGap)))
-    let width = max(available, widths.reduce(0, +) + gaps * minimumGap)
+    let width = width ?? (fixed + gaps * minimumGap) / (1 - heatmapShare)
+    widths.append(max(0, min(width * heatmapShare, width - fixed - gaps * minimumGap)))
     let height =
       zip(subviews, widths).map {
         $0.sizeThatFits(ProposedViewSize(width: $1, height: nil)).height

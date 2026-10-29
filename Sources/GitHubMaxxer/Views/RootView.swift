@@ -157,7 +157,7 @@ struct RootView: View {
     }
     .onChange(of: appearsActive, initial: true) { _, active in model.setFocused(active) }
     .onDisappear { model.setFocused(false) }
-    .frame(minWidth: 920, minHeight: 680)
+    .frame(minWidth: 1130, minHeight: 680)
   }
 
   private var navigation: some View {
