@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
+  @Environment(SoftwareUpdate.self) private var softwareUpdate
   let connect: (AccountConnection?) -> Void
   @State private var removing: AccountConnection?
   @State private var removalError: String?
@@ -86,6 +87,18 @@ struct SettingsView: View {
             )
             .labelsHidden().toggleStyle(.switch).controlSize(.small)
             .disabled(model.isPreview)
+          }
+        }
+        SettingsSection("Software update") {
+          LabeledContent("Check automatically") {
+            @Bindable var softwareUpdate = softwareUpdate
+            Toggle("Check automatically", isOn: $softwareUpdate.checksAutomatically)
+              .labelsHidden().toggleStyle(.switch).controlSize(.small)
+              .disabled(model.isPreview)
+          }
+          LabeledContent("Latest version") {
+            Button("Check for Updates…") { softwareUpdate.check() }
+              .disabled(!softwareUpdate.canCheck || model.isPreview)
           }
         }
         SettingsSection("Updates") {

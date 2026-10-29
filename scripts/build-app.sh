@@ -21,8 +21,10 @@ mkdir -p "$PWD/build"
 staging_directory="$(mktemp -d "$PWD/build/.hammertime.XXXXXX")"
 trap 'rm -rf "$staging_directory"' EXIT
 app_bundle="$staging_directory/Hammertime.app"
-mkdir -p "$app_bundle/Contents/MacOS" "$app_bundle/Contents/Resources"
+mkdir -p "$app_bundle/Contents/MacOS" "$app_bundle/Contents/Resources" "$app_bundle/Contents/Frameworks"
 cp "$binary_directory/Hammertime" "$app_bundle/Contents/MacOS/Hammertime"
+ditto "$binary_directory/Sparkle.framework" "$app_bundle/Contents/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath @executable_path/../Frameworks "$app_bundle/Contents/MacOS/Hammertime"
 cp Resources/Info.plist "$app_bundle/Contents/Info.plist"
 tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo v0.0.0)"
 version="${tag#v}"
@@ -31,7 +33,12 @@ plutil -insert CFBundleVersion -string "$version" "$app_bundle/Contents/Info.pli
 cp Resources/AppIcon.icns "$app_bundle/Contents/Resources/AppIcon.icns"
 cp Sources/GitHubMaxxer/Resources/* "$app_bundle/Contents/Resources/"
 plutil -lint "$app_bundle/Contents/Info.plist"
-codesign --force --options runtime --timestamp --sign "${CODESIGN_IDENTITY:-Apple Development}" "$app_bundle"
+identity="${CODESIGN_IDENTITY:-Apple Development}"
+sparkle="$app_bundle/Contents/Frameworks/Sparkle.framework/Versions/B"
+for nested in "$sparkle/XPCServices/Installer.xpc" "$sparkle/XPCServices/Downloader.xpc" "$sparkle/Autoupdate" "$sparkle/Updater.app" "$app_bundle/Contents/Frameworks/Sparkle.framework"; do
+  codesign --force --options runtime --timestamp --preserve-metadata=entitlements --sign "$identity" "$nested"
+done
+codesign --force --options runtime --timestamp --sign "$identity" "$app_bundle"
 codesign --verify --deep --strict "$app_bundle"
 require_app_stopped
 rm -rf "$destination"

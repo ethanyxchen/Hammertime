@@ -8,6 +8,7 @@ struct GitHubMaxxerApp: App {
   @FocusedBinding(\.destination) private var destination
   @FocusedValue(\.searchFocus) private var searchFocus
   private var model: AppModel { delegate.model }
+  private var softwareUpdate: SoftwareUpdate { delegate.softwareUpdate }
 
   private var previewColorScheme: ColorScheme? {
     ProcessInfo.processInfo.arguments.contains("--preview-dark") ? .dark : nil
@@ -15,7 +16,7 @@ struct GitHubMaxxerApp: App {
 
   var body: some Scene {
     Window("Hammertime", id: "main") {
-      RootView().environment(model)
+      RootView().environment(model).environment(softwareUpdate)
         .preferredColorScheme(previewColorScheme)
     }
     .defaultSize(width: 1120, height: 800)
@@ -51,13 +52,14 @@ struct GitHubMaxxerApp: App {
           .disabled(searchFocus == nil)
       }
       CommandGroup(after: .appInfo) {
+        UpdateButton(softwareUpdate: softwareUpdate)
         Link(
           "Hammertime on GitHub",
           destination: URL(string: "https://github.com/ethanyxchen/github-maxxer")!)
       }
     }
     MenuBarExtra {
-      MenuBarView().environment(model)
+      MenuBarView(softwareUpdate: softwareUpdate).environment(model)
     } label: {
       MenuBarLabel().environment(model)
     }
@@ -99,7 +101,17 @@ private struct SettingsButton: View {
   }
 }
 
+private struct UpdateButton: View {
+  let softwareUpdate: SoftwareUpdate
+
+  var body: some View {
+    Button("Check for Updates…") { softwareUpdate.check() }
+      .disabled(!softwareUpdate.canCheck)
+  }
+}
+
 private struct MenuBarView: View {
+  let softwareUpdate: SoftwareUpdate
   @Environment(AppModel.self) private var model
   @Environment(\.openWindow) private var openWindow
 
@@ -134,6 +146,7 @@ private struct MenuBarView: View {
       openWindow(id: "main")
       NSApplication.shared.activate(ignoringOtherApps: true)
     }
+    UpdateButton(softwareUpdate: softwareUpdate)
     Button("Refresh") { Task { await model.refresh() } }
       .disabled(
         model.isRefreshing || model.isConnecting || model.connections.isEmpty || model.isPreview)
@@ -148,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   let model = AppModel(
     preview: ProcessInfo.processInfo.arguments.contains("--preview")
       || ProcessInfo.processInfo.arguments.contains("--preview-dark"))
+  let softwareUpdate = SoftwareUpdate()
   private var banner: MergeBanner?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
