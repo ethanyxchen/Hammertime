@@ -13,12 +13,7 @@ struct SettingsView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
-        SettingsSection(
-          "Daily merged PR targets",
-          footer: model.countsOnly
-            ? "Count merged PRs for Personal and each organisation without a target. PRs count on their merge date, using your Mac's time zone. Weeks run Monday through Sunday. Each PR counts once across all connections."
-            : "Set a target for Personal and each organisation, or 0 for none. All activity adds them together. Right-click Personal or an organisation in the sidebar to change its colour. Weekly and monthly targets follow the daily target: 5 days per week and 20 days per month. PRs count on their merge date, using your Mac's time zone. Weeks run Monday through Sunday. Each PR counts once across all connections."
-        ) {
+        SettingsSection("Daily merged PR targets") {
           LabeledContent("Use targets") {
             Toggle(
               "Use targets",
@@ -35,11 +30,7 @@ struct SettingsView: View {
             }
           }
         }
-        SettingsSection(
-          "GitHub connections",
-          footer:
-            "Connect personal and work accounts. Signing in to the same account again updates its credential and keeps your repository selections. Credentials are stored in macOS Keychain. Activity is saved locally so it stays available offline. Targets, colours, and repository selections sync through a secret gist on your first account."
-        ) {
+        SettingsSection("GitHub connections") {
           ForEach(model.connections) { connection in
             VStack(alignment: .leading, spacing: 10) {
               HStack(alignment: .top, spacing: 12) {
@@ -73,10 +64,7 @@ struct SettingsView: View {
             .help("Add GitHub Connection…")
             .disabled(model.isPreview)
         }
-        SettingsSection(
-          "Merge celebration",
-          footer: "Play the hammer's impact and shatter sounds when a pull request merges."
-        ) {
+        SettingsSection("Merge celebration") {
           LabeledContent("Sound") {
             Toggle(
               "Sound",
@@ -85,7 +73,7 @@ struct SettingsView: View {
             .labelsHidden().toggleStyle(.switch).controlSize(.small)
           }
         }
-        SettingsSection("Login", footer: "Start Hammertime when you log in.") {
+        SettingsSection("Login") {
           LabeledContent("Open at login") {
             Toggle(
               "Open at login",
@@ -138,17 +126,15 @@ struct SettingsView: View {
 
 private struct SettingsSection<Content: View, Accessory: View>: View {
   let title: String
-  var footer: String?
   let content: Content
   let accessory: Accessory
   private let inset: CGFloat = 10
 
   init(
-    _ title: String, footer: String? = nil, @ViewBuilder content: () -> Content,
+    _ title: String, @ViewBuilder content: () -> Content,
     @ViewBuilder accessory: () -> Accessory = { EmptyView() }
   ) {
     self.title = title
-    self.footer = footer
     self.content = content()
     self.accessory = accessory()
   }
@@ -172,9 +158,6 @@ private struct SettingsSection<Content: View, Accessory: View>: View {
       .labeledContentStyle(SettingsRowStyle())
       .padding(.horizontal, inset)
       .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
-      if let footer {
-        Text(footer).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, inset)
-      }
     }
   }
 }
