@@ -18,6 +18,15 @@ struct SidebarResizeBehavior: NSViewRepresentable {
     private var observation: NSKeyValueObservation?
     private var minimumWidth: NSLayoutConstraint?
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+      super.viewWillMove(toWindow: newWindow)
+      guard newWindow !== window else { return }
+      observation?.invalidate()
+      observation = nil
+      minimumWidth?.isActive = false
+      minimumWidth = nil
+    }
+
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
       configure()
@@ -33,8 +42,10 @@ struct SidebarResizeBehavior: NSViewRepresentable {
       else { return }
       if sidebar.collapseBehavior != .useConstraints { sidebar.collapseBehavior = .useConstraints }
       guard observation == nil else { return }
-      minimumWidth = contentView.widthAnchor.constraint(
+      let minimumWidth = contentView.widthAnchor.constraint(
         greaterThanOrEqualToConstant: minimumWidthWithSidebar)
+      minimumWidth.priority = .defaultHigh
+      self.minimumWidth = minimumWidth
       observation = sidebar.observe(\.isCollapsed, options: [.initial, .new]) {
         [weak self] item, _ in
         let collapsed = item.isCollapsed

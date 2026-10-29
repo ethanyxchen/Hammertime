@@ -110,27 +110,28 @@ struct ActivityView: View {
   }
 
   private func split(_ pulls: [MergedPullRequest]) -> [(title: String, count: Int)] {
-    let rows: [(title: String, count: Int)]
+    var rows: [(title: String, count: Int)]
     if filter == .all {
-      let workspaces = model.workspaces.map {
+      rows = model.workspaces.map {
         (title: model.title(for: $0), count: model.pullRequests(for: $0, in: pulls).count)
       }
-      let other = pulls.count - workspaces.map(\.count).reduce(0, +)
-      rows = workspaces + (other > 0 ? [(title: "Other", count: other)] : [])
     } else {
-      rows = Dictionary(grouping: pulls, by: \.repository.name)
-        .map { (title: $0.key, count: $0.value.count) }
+      rows = Dictionary(grouping: pulls, by: \.repository.nameWithOwner).values
+        .map { (title: $0[0].repository.name, count: $0.count) }
         .sorted { $0.count != $1.count ? $0.count > $1.count : $0.title < $1.title }
     }
-    guard rows.count > (filter == .all ? 1 : 0) else { return [] }
-    guard rows.count > 3 else { return rows }
-    let top = rows.enumerated()
-      .sorted {
-        $0.element.count != $1.element.count
-          ? $0.element.count > $1.element.count : $0.offset < $1.offset
-      }
-      .prefix(2).map(\.element)
-    return top + [(title: "Other", count: pulls.count - top.map(\.count).reduce(0, +))]
+    let attributed = rows.map(\.count).reduce(0, +)
+    if rows.count + (pulls.count > attributed ? 1 : 0) > 3 {
+      rows = rows.enumerated()
+        .sorted {
+          $0.element.count != $1.element.count
+            ? $0.element.count > $1.element.count : $0.offset < $1.offset
+        }
+        .prefix(2).map(\.element)
+    }
+    let other = pulls.count - rows.map(\.count).reduce(0, +)
+    let split = rows + (other > 0 ? [(title: "Other", count: other)] : [])
+    return split.count > (filter == .all ? 1 : 0) ? split : []
   }
 
   private func standing(_ period: GoalPeriod, in pulls: [MergedPullRequest]) -> Standing {

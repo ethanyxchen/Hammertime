@@ -95,6 +95,9 @@ struct ConnectionDraft: Identifiable {
 }
 
 struct RootView: View {
+  private static let minimumWidth: CGFloat = 860
+  private static let sidebarWidth: CGFloat = 270
+
   @Environment(AppModel.self) private var model
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.appearsActive) private var appearsActive
@@ -157,7 +160,7 @@ struct RootView: View {
     }
     .onChange(of: appearsActive, initial: true) { _, active in model.setFocused(active) }
     .onDisappear { model.setFocused(false) }
-    .frame(minWidth: 860, minHeight: 680)
+    .frame(minWidth: Self.minimumWidth, minHeight: 680)
   }
 
   private var navigation: some View {
@@ -178,8 +181,10 @@ struct RootView: View {
       }
       .scrollContentBackground(.hidden)
       .background(Palette.sidebar)
-      .background(SidebarResizeBehavior(minimumWidthWithSidebar: 1130))
-      .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 270)
+      .background(
+        SidebarResizeBehavior(minimumWidthWithSidebar: Self.minimumWidth + Self.sidebarWidth)
+      )
+      .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: Self.sidebarWidth)
       .safeAreaInset(edge: .bottom, spacing: 0) {
         SidebarFooter(isSelected: model.destination == .settings) { model.destination = .settings }
       }
