@@ -4,6 +4,8 @@ A native macOS menu bar app for tracking the pull requests you merge, across per
 
 Set daily, weekly, and monthly targets for personal work and each organisation. Connect multiple GitHub accounts, choose entire repository owners or individual repositories, and see your progress against them.
 
+https://github.com/user-attachments/assets/4bfaa128-61a9-44ea-9fbb-b5f9064f9698
+
 ## Install
 
 Requires macOS 26 or newer.
