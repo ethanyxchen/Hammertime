@@ -224,7 +224,10 @@ struct ActivityView: View {
           Section {
             ForEach(entry.pulls) { pull in
               PullRequestRow(pull: pull, landing: landing(pull)).padding(.vertical, 9)
-                .transition(.move(edge: .leading).combined(with: .opacity))
+                .transition(
+                  .asymmetric(
+                    insertion: .identity,
+                    removal: .move(edge: .leading).combined(with: .opacity)))
             }
           } header: {
             dayHeader(entry.day, pulls: entry.pulls)
@@ -483,7 +486,7 @@ private struct PullRequestRow: View {
 
   var body: some View {
     Link(destination: pull.url) {
-      content
+      entrance
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -498,6 +501,18 @@ private struct PullRequestRow: View {
       }
     }
     .accessibilityElement(children: .combine)
+  }
+
+  @ViewBuilder
+  private var entrance: some View {
+    if let landing {
+      Choreography(start: landing.reveal, duration: Entrance.duration) { time in
+        let progress = Entrance.progress(at: time)
+        content.opacity(progress).offset(x: -Entrance.travel * (1 - progress))
+      }
+    } else {
+      content
+    }
   }
 
   private static let titleFont = NSFont.systemFont(ofSize: 13, weight: .medium)
@@ -521,5 +536,15 @@ private struct PullRequestRow: View {
       .padding(.top, landing == nil ? 0 : Self.titleFont.ascender - Self.titleFont.capHeight)
     }
     .fixedSize(horizontal: false, vertical: true)
+  }
+}
+
+private enum Entrance {
+  static let delay = 0.25
+  static let duration = delay + 0.3
+  static let travel = 24.0
+
+  static func progress(at time: Double) -> Double {
+    UnitCurve.easeOut.value(at: max(0, time - delay) / (duration - delay))
   }
 }
