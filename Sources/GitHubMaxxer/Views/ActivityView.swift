@@ -66,14 +66,14 @@ struct ActivityView: View {
   }
 
   private func tally(_ pulls: [MergedPullRequest]) -> some View {
-    let days = Activity.days(Activity.historyDays, of: pulls, endingAt: model.now)
-    let best = Array(days.suffix(30)).busiest
+    let days = Heatmap.visible(Activity.days(Activity.historyDays, of: pulls, endingAt: model.now))
+    let best = days.busiest
     return TallyLayout {
       dayTally("Today", days.last)
       Rule(vertical: true)
       dayTally(best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
       Rule(vertical: true)
-      Heatmap(days: days)
+      Heatmap(days: days, record: best)
     }
   }
 
@@ -388,6 +388,7 @@ private struct TallyLayout: Layout {
 
 private struct Heatmap: View {
   let days: [ActivityDay]
+  let record: ActivityDay?
   @State private var hovered: Int?
   @State private var width: CGFloat = 0
   nonisolated private static let rows = 7
@@ -398,20 +399,23 @@ private struct Heatmap: View {
     (height + spacing) / CGFloat(rows) * CGFloat(columns) - spacing
   }
 
-  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(Self.columns) }
-
-  private var offset: Int {
-    let weekday = days.last.map { (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 }
-    return (Self.columns - 1) * Self.rows + (weekday ?? Self.rows - 1) - (days.count - 1)
+  nonisolated static func visible(_ days: [ActivityDay]) -> [ActivityDay] {
+    Array(days.suffix(cells(endingWith: days)))
   }
 
+  nonisolated private static func cells(endingWith days: [ActivityDay]) -> Int {
+    guard let today = days.last else { return 0 }
+    let weekday = (Calendar.current.component(.weekday, from: today.date) + 5) % 7
+    return (columns - 1) * rows + weekday + 1
+  }
+
+  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(Self.columns) }
+
+  private var offset: Int { Self.cells(endingWith: days) - days.count }
+
   var body: some View {
-    let hidden = max(0, -offset)
-    let shown = Array(days.dropFirst(hidden))
-    let total = shown.map(\.count).reduce(0, +)
-    let record = shown.busiest
-    let levels = Array(repeating: 0, count: hidden) + shown.heatLevels(Palette.heat.count - 1)
-    let fills = zip(days, levels).map { day, level in
+    let total = days.map(\.count).reduce(0, +)
+    let fills = zip(days, days.heatLevels(Palette.heat.count - 1)).map { day, level in
       day.date == record?.date ? Palette.merged : Palette.heat[level]
     }
     return HStack(alignment: .top, spacing: Self.spacing) {
@@ -439,7 +443,7 @@ private struct Heatmap: View {
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "Last \(shown.count) days: \(pullCount(total)) merged"
+      "Last \(days.count) days: \(pullCount(total)) merged"
         + (record.map { ". Record: \(dayLabel($0.date)), \(pullCount($0.count))" } ?? ""))
   }
 
