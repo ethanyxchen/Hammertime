@@ -116,6 +116,20 @@ struct ActivityTests {
     #expect(Activity.days(2, of: [], endingAt: now, calendar: calendar).busiest == nil)
   }
 
+  @Test func heatLevelsScaleToEachPersonsOwnBusyDays() {
+    func levels(_ counts: [Int]) -> [Int] {
+      counts.enumerated().map { day, count in
+        ActivityDay(
+          date: Date(timeIntervalSince1970: Double(day) * 86_400),
+          pullRequests: (0..<count).map { pull("\(day)-\($0)", "2026-09-29T10:00:00Z") })
+      }
+      .heatLevels
+    }
+    #expect(levels([0, 1, 2, 3, 4]) == [0, 2, 3, 4, 4])
+    #expect(levels([0, 1, 4, 8, 12, 12, 30]) == [0, 1, 2, 3, 4, 4, 4])
+    #expect(levels([0, 0]) == [0, 0])
+  }
+
   @Test func weeksBeginMondayRegardlessOfLocale() {
     let now = date("2026-09-28T12:00:00Z")
     let pulls = [
