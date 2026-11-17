@@ -73,7 +73,7 @@ struct ActivityView: View {
       Rule(vertical: true)
       dayTally(best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
       Rule(vertical: true)
-      Heatmap(days: days, record: best)
+      Heatmap(days: days, hammerDay: best)
     }
   }
 
@@ -388,7 +388,7 @@ private struct TallyLayout: Layout {
 
 private struct Heatmap: View {
   let days: [ActivityDay]
-  let record: ActivityDay?
+  let hammerDay: ActivityDay?
   @State private var hovered: Int?
   @State private var width: CGFloat = 0
   nonisolated private static let rows = 7
@@ -416,7 +416,7 @@ private struct Heatmap: View {
   var body: some View {
     let total = days.map(\.count).reduce(0, +)
     let fills = zip(days, days.heatLevels(Palette.heat.count - 1)).map { day, level in
-      day.date == record?.date ? Palette.merged : Palette.heat[level]
+      day.date == hammerDay?.date ? Palette.merged : Palette.heat[level]
     }
     return HStack(alignment: .top, spacing: Self.spacing) {
       ForEach(0..<Self.columns, id: \.self) { column in
@@ -438,13 +438,11 @@ private struct Heatmap: View {
       case .ended: hovered = nil
       }
     }
-    .overlay(alignment: .topLeading) {
-      if let hovered { tooltip(hovered, isRecord: days[hovered].date == record?.date) }
-    }
+    .overlay(alignment: .topLeading) { tooltip }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "Last \(days.count) days: \(pullCount(total)) merged"
-        + (record.map { ". Record: \(dayLabel($0.date)), \(pullCount($0.count))" } ?? ""))
+        + (hammerDay.map { ". Hammer Day: \(dayLabel($0.date)), \(pullCount($0.count))" } ?? ""))
   }
 
   private func square(_ index: Int, fills: [Color]) -> some View {
@@ -471,20 +469,25 @@ private struct Heatmap: View {
     return column < Self.columns && row < Self.rows && days.indices.contains(index) ? index : nil
   }
 
-  private func tooltip(_ index: Int, isRecord: Bool) -> some View {
-    let day = days[index]
-    let center = CGFloat((index + offset) / Self.rows) * pitch + (pitch - Self.spacing) / 2
-    let top = CGFloat((index + offset) % Self.rows) * pitch
+  private var tooltip: some View {
+    let column = hovered.map { ($0 + offset) / Self.rows } ?? 0
+    let center = CGFloat(column) * pitch + (pitch - Self.spacing) / 2
     let width = width
-    let record = isRecord ? " · record" : ""
-    return Text("\(dayLabel(day.date)) · \(pullCount(day.count))\(record)")
+    return ZStack {
+      if let hovered { label(days[hovered]) }
+    }
+    .fixedSize()
+    .alignmentGuide(.leading) { -min(max(center - $0.width / 2, 0), width - $0.width) }
+    .alignmentGuide(.top) { $0.height + 6 }
+    .allowsHitTesting(false)
+  }
+
+  private func label(_ day: ActivityDay) -> some View {
+    let badge = day.date == hammerDay?.date ? " · Hammer Day" : ""
+    return Text("\(dayLabel(day.date)) · \(pullCount(day.count))\(badge)")
       .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
       .padding(.horizontal, 8).padding(.vertical, 5)
       .background(Palette.ink, in: .rect(cornerRadius: 5))
-      .fixedSize()
-      .alignmentGuide(.leading) { -min(max(center - $0.width / 2, 0), width - $0.width) }
-      .alignmentGuide(.top) { $0.height + 6 - top }
-      .allowsHitTesting(false)
   }
 }
 
