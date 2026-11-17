@@ -403,10 +403,12 @@ private struct Heatmap: View {
   }
 
   var body: some View {
-    let shown = days.dropFirst(max(0, -offset))
+    let hidden = max(0, -offset)
+    let shown = Array(days.dropFirst(hidden))
     let total = shown.map(\.count).reduce(0, +)
-    let record = Array(shown).busiest?.date
-    let fills = zip(days, days.heatLevels).map { day, level in
+    let record = shown.busiest?.date
+    let levels = Array(repeating: 0, count: hidden) + shown.heatLevels
+    let fills = zip(days, levels).map { day, level in
       day.date == record ? Palette.merged : Palette.heat(level)
     }
     return HStack(alignment: .top, spacing: Self.spacing) {
