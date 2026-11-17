@@ -405,12 +405,15 @@ private struct Heatmap: View {
   var body: some View {
     let shown = days.dropFirst(max(0, -offset))
     let total = shown.map(\.count).reduce(0, +)
-    let levels = days.heatLevels
+    let record = Array(shown).busiest?.date
+    let fills = zip(days, days.heatLevels).map { day, level in
+      day.date == record ? Palette.merged : Palette.heat(level)
+    }
     return HStack(alignment: .top, spacing: Self.spacing) {
       ForEach(0..<Self.columns, id: \.self) { column in
         VStack(spacing: Self.spacing) {
           ForEach(0..<Self.rows, id: \.self) { row in
-            square(column * Self.rows + row - offset, levels: levels)
+            square(column * Self.rows + row - offset, fills: fills)
           }
         }
       }
@@ -434,9 +437,9 @@ private struct Heatmap: View {
       "Last \(shown.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
   }
 
-  private func square(_ index: Int, levels: [Int]) -> some View {
+  private func square(_ index: Int, fills: [Color]) -> some View {
     RoundedRectangle(cornerRadius: 3)
-      .fill(levels.indices.contains(index) ? Palette.heat(levels[index]) : .clear)
+      .fill(fills.indices.contains(index) ? fills[index] : .clear)
       .aspectRatio(1, contentMode: .fit)
       .overlay {
         if let ring = ring(index) {
