@@ -73,7 +73,7 @@ struct ActivityView: View {
       Rule(vertical: true)
       dayTally(best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
       Rule(vertical: true)
-      Heatmap(days: days, best: best?.date)
+      Heatmap(days: days)
     }
   }
 
@@ -388,7 +388,6 @@ private struct TallyLayout: Layout {
 
 private struct Heatmap: View {
   let days: [ActivityDay]
-  let best: Date?
   @State private var hovered: Int?
   @State private var width: CGFloat = 0
   nonisolated private static let rows = 7
@@ -457,8 +456,7 @@ private struct Heatmap: View {
 
   private func ring(_ index: Int) -> Color? {
     guard days.indices.contains(index) else { return nil }
-    if index == hovered || index == days.count - 1 { return Palette.ink }
-    return days[index].date == best ? Palette.secondary : nil
+    return index == hovered || index == days.count - 1 ? Palette.ink : nil
   }
 
   private func index(at point: CGPoint) -> Int? {
