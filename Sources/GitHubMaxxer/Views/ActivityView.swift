@@ -66,14 +66,14 @@ struct ActivityView: View {
   }
 
   private func tally(_ pulls: [MergedPullRequest]) -> some View {
-    let days = Activity.days(Activity.historyDays, of: pulls, endingAt: model.now)
-    let best = Array(days.suffix(30)).busiest
+    let days = Heatmap.visible(Activity.days(Activity.historyDays, of: pulls, endingAt: model.now))
+    let best = days.busiest
     return TallyLayout {
       dayTally("Today", days.last)
       Rule(vertical: true)
       dayTally(best.map { "Most productive · \(dayLabel($0.date))" } ?? "Most productive", best)
       Rule(vertical: true)
-      Heatmap(days: days, best: best?.date)
+      Heatmap(days: days, hammerDay: best)
     }
   }
 
@@ -98,7 +98,7 @@ struct ActivityView: View {
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "\(title): \(count) merged \(count == 1 ? "PR" : "PRs")"
+      "\(title): \(pullCount(count)) merged"
         + split.map { ". \($0.title): \($0.count)" }.joined())
   }
 
@@ -346,6 +346,10 @@ private func dayLabel(_ date: Date) -> String {
   date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
 }
 
+private func pullCount(_ count: Int) -> String {
+  "\(count) \(count == 1 ? "PR" : "PRs")"
+}
+
 private struct TallyLayout: Layout {
   var gap: CGFloat = 32
 
@@ -384,7 +388,7 @@ private struct TallyLayout: Layout {
 
 private struct Heatmap: View {
   let days: [ActivityDay]
-  let best: Date?
+  let hammerDay: ActivityDay?
   @State private var hovered: Int?
   @State private var width: CGFloat = 0
   nonisolated private static let rows = 7
@@ -395,20 +399,31 @@ private struct Heatmap: View {
     (height + spacing) / CGFloat(rows) * CGFloat(columns) - spacing
   }
 
-  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(Self.columns) }
-
-  private var offset: Int {
-    let weekday = days.last.map { (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 }
-    return (Self.columns - 1) * Self.rows + (weekday ?? Self.rows - 1) - (days.count - 1)
+  nonisolated static func visible(_ days: [ActivityDay]) -> [ActivityDay] {
+    Array(days.suffix(cells(endingWith: days)))
   }
 
+  nonisolated private static func cells(endingWith days: [ActivityDay]) -> Int {
+    guard let today = days.last else { return 0 }
+    let weekday = (Calendar.current.component(.weekday, from: today.date) + 5) % 7
+    return (columns - 1) * rows + weekday + 1
+  }
+
+  private var pitch: CGFloat { (width + Self.spacing) / CGFloat(Self.columns) }
+
+  private var offset: Int { Self.cells(endingWith: days) - days.count }
+
   var body: some View {
-    let shown = days.dropFirst(max(0, -offset))
-    let total = shown.map(\.count).reduce(0, +)
+    let total = days.map(\.count).reduce(0, +)
+    let fills = zip(days, days.heatLevels(Palette.heat.count - 1)).map { day, level in
+      day.date == hammerDay?.date ? Palette.merged : Palette.heat[level]
+    }
     return HStack(alignment: .top, spacing: Self.spacing) {
       ForEach(0..<Self.columns, id: \.self) { column in
         VStack(spacing: Self.spacing) {
-          ForEach(0..<Self.rows, id: \.self) { row in square(column * Self.rows + row - offset) }
+          ForEach(0..<Self.rows, id: \.self) { row in
+            square(column * Self.rows + row - offset, fills: fills)
+          }
         }
       }
     }
@@ -423,17 +438,16 @@ private struct Heatmap: View {
       case .ended: hovered = nil
       }
     }
-    .overlay(alignment: .topLeading) {
-      if let hovered { tooltip(hovered) }
-    }
+    .overlay(alignment: .topLeading) { tooltip }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "Last \(shown.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
+      "Last \(days.count) days: \(pullCount(total)) merged"
+        + (hammerDay.map { ". Hammer Day: \(dayLabel($0.date)), \(pullCount($0.count))" } ?? ""))
   }
 
-  private func square(_ index: Int) -> some View {
+  private func square(_ index: Int, fills: [Color]) -> some View {
     RoundedRectangle(cornerRadius: 3)
-      .fill(days.indices.contains(index) ? Palette.heat(days[index].count) : .clear)
+      .fill(fills.indices.contains(index) ? fills[index] : .clear)
       .aspectRatio(1, contentMode: .fit)
       .overlay {
         if let ring = ring(index) {
@@ -444,8 +458,7 @@ private struct Heatmap: View {
 
   private func ring(_ index: Int) -> Color? {
     guard days.indices.contains(index) else { return nil }
-    if index == hovered || index == days.count - 1 { return Palette.ink }
-    return days[index].date == best ? Palette.secondary : nil
+    return index == hovered || index == days.count - 1 ? Palette.ink : nil
   }
 
   private func index(at point: CGPoint) -> Int? {
@@ -456,19 +469,25 @@ private struct Heatmap: View {
     return column < Self.columns && row < Self.rows && days.indices.contains(index) ? index : nil
   }
 
-  private func tooltip(_ index: Int) -> some View {
-    let day = days[index]
-    let center = CGFloat((index + offset) / Self.rows) * pitch + (pitch - Self.spacing) / 2
-    let top = CGFloat((index + offset) % Self.rows) * pitch
+  private var tooltip: some View {
+    let column = hovered.map { ($0 + offset) / Self.rows } ?? 0
+    let center = CGFloat(column) * pitch + (pitch - Self.spacing) / 2
     let width = width
-    return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
+    return ZStack {
+      if let hovered { label(days[hovered]) }
+    }
+    .fixedSize()
+    .alignmentGuide(.leading) { -min(max(center - $0.width / 2, 0), width - $0.width) }
+    .alignmentGuide(.top) { $0.height + 6 }
+    .allowsHitTesting(false)
+  }
+
+  private func label(_ day: ActivityDay) -> some View {
+    let badge = day.date == hammerDay?.date ? " · Hammer Day" : ""
+    return Text("\(dayLabel(day.date)) · \(pullCount(day.count))\(badge)")
       .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
       .padding(.horizontal, 8).padding(.vertical, 5)
       .background(Palette.ink, in: .rect(cornerRadius: 5))
-      .fixedSize()
-      .alignmentGuide(.leading) { -min(max(center - $0.width / 2, 0), width - $0.width) }
-      .alignmentGuide(.top) { $0.height + 6 - top }
-      .allowsHitTesting(false)
   }
 }
 

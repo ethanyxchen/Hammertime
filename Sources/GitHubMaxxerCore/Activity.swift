@@ -146,6 +146,14 @@ extension Array where Element == ActivityDay {
   public var busiest: ActivityDay? {
     filter { $0.count > 0 }.max { ($0.count, $0.date) < ($1.count, $1.date) }
   }
+
+  public func heatLevels(_ top: Int) -> [Int] {
+    let active = map(\.count).filter { $0 > 0 }.sorted()
+    let peak = active.isEmpty ? 1 : active[(active.count - 1) * 9 / 10]
+    return map {
+      Swift.min(top, ($0.count * top + peak - 1) / peak)
+    }
+  }
 }
 
 public enum Activity {
