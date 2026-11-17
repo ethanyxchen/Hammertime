@@ -430,7 +430,7 @@ private struct Heatmap: View {
       }
     }
     .overlay(alignment: .topLeading) {
-      if let hovered { tooltip(hovered) }
+      if let hovered { tooltip(hovered, isRecord: days[hovered].date == record) }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
@@ -462,12 +462,13 @@ private struct Heatmap: View {
     return column < Self.columns && row < Self.rows && days.indices.contains(index) ? index : nil
   }
 
-  private func tooltip(_ index: Int) -> some View {
+  private func tooltip(_ index: Int, isRecord: Bool) -> some View {
     let day = days[index]
     let center = CGFloat((index + offset) / Self.rows) * pitch + (pitch - Self.spacing) / 2
     let top = CGFloat((index + offset) % Self.rows) * pitch
     let width = width
-    return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")")
+    let record = isRecord ? " · record" : ""
+    return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")\(record)")
       .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
       .padding(.horizontal, 8).padding(.vertical, 5)
       .background(Palette.ink, in: .rect(cornerRadius: 5))
