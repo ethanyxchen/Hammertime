@@ -123,7 +123,7 @@ struct ActivityTests {
           date: Date(timeIntervalSince1970: Double(day) * 86_400),
           pullRequests: (0..<count).map { pull("\(day)-\($0)", "2026-09-29T10:00:00Z") })
       }
-      .heatLevels
+      .heatLevels(4)
     }
     #expect(levels([0, 1, 2, 3, 4]) == [0, 2, 3, 4, 4])
     #expect(levels([0, 1, 4, 8, 12, 12, 30]) == [0, 1, 2, 3, 4, 4, 4])

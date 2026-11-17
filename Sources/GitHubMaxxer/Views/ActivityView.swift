@@ -98,7 +98,7 @@ struct ActivityView: View {
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "\(title): \(count) merged \(count == 1 ? "PR" : "PRs")"
+      "\(title): \(pullCount(count)) merged"
         + split.map { ". \($0.title): \($0.count)" }.joined())
   }
 
@@ -346,6 +346,10 @@ private func dayLabel(_ date: Date) -> String {
   date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
 }
 
+private func pullCount(_ count: Int) -> String {
+  "\(count) \(count == 1 ? "PR" : "PRs")"
+}
+
 private struct TallyLayout: Layout {
   var gap: CGFloat = 32
 
@@ -406,10 +410,10 @@ private struct Heatmap: View {
     let hidden = max(0, -offset)
     let shown = Array(days.dropFirst(hidden))
     let total = shown.map(\.count).reduce(0, +)
-    let record = shown.busiest?.date
-    let levels = Array(repeating: 0, count: hidden) + shown.heatLevels
+    let record = shown.busiest
+    let levels = Array(repeating: 0, count: hidden) + shown.heatLevels(Palette.heat.count - 1)
     let fills = zip(days, levels).map { day, level in
-      day.date == record ? Palette.merged : Palette.heat(level)
+      day.date == record?.date ? Palette.merged : Palette.heat[level]
     }
     return HStack(alignment: .top, spacing: Self.spacing) {
       ForEach(0..<Self.columns, id: \.self) { column in
@@ -432,11 +436,12 @@ private struct Heatmap: View {
       }
     }
     .overlay(alignment: .topLeading) {
-      if let hovered { tooltip(hovered, isRecord: days[hovered].date == record) }
+      if let hovered { tooltip(hovered, isRecord: days[hovered].date == record?.date) }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "Last \(shown.count) days: \(total) merged \(total == 1 ? "PR" : "PRs")")
+      "Last \(shown.count) days: \(pullCount(total)) merged"
+        + (record.map { ". Record: \(dayLabel($0.date)), \(pullCount($0.count))" } ?? ""))
   }
 
   private func square(_ index: Int, fills: [Color]) -> some View {
@@ -470,7 +475,7 @@ private struct Heatmap: View {
     let top = CGFloat((index + offset) % Self.rows) * pitch
     let width = width
     let record = isRecord ? " · record" : ""
-    return Text("\(dayLabel(day.date)) · \(day.count) \(day.count == 1 ? "PR" : "PRs")\(record)")
+    return Text("\(dayLabel(day.date)) · \(pullCount(day.count))\(record)")
       .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.panel)
       .padding(.horizontal, 8).padding(.vertical, 5)
       .background(Palette.ink, in: .rect(cornerRadius: 5))

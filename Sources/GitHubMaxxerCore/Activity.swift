@@ -147,18 +147,17 @@ extension Array where Element == ActivityDay {
     filter { $0.count > 0 }.max { ($0.count, $0.date) < ($1.count, $1.date) }
   }
 
-  public var heatLevels: [Int] {
+  public func heatLevels(_ top: Int) -> [Int] {
     let active = map(\.count).filter { $0 > 0 }.sorted()
     let peak = active.isEmpty ? 1 : active[(active.count - 1) * 9 / 10]
     return map {
-      Swift.min(Activity.heatLevels, ($0.count * Activity.heatLevels + peak - 1) / peak)
+      Swift.min(top, ($0.count * top + peak - 1) / peak)
     }
   }
 }
 
 public enum Activity {
   public static let historyDays = 90
-  public static let heatLevels = 4
   public static let pageDays = 7
   public static let pageCount = (historyDays + pageDays - 1) / pageDays
 
