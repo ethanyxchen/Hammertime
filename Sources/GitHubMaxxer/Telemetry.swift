@@ -8,11 +8,13 @@ final class Telemetry {
   private static let identifierKey = "telemetryIdentifier"
   private static let reportedKey = "telemetryReported"
 
+  private let bundle: Bundle
   private let defaults: UserDefaults
   private let session: URLSession
   private var task: Task<Void, Never>?
 
-  init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
+  init(bundle: Bundle = .main, defaults: UserDefaults = .standard, session: URLSession = .shared) {
+    self.bundle = bundle
     self.defaults = defaults
     self.session = session
   }
@@ -40,13 +42,7 @@ final class Telemetry {
       "api_key": Self.projectKey,
       "event": "app_active",
       "distinct_id": identifier,
-      "properties": [
-        "app": "hammertime",
-        "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-          as? String ?? "unknown",
-        "os_version": ProcessInfo.processInfo.operatingSystemVersionString,
-        "$process_person_profile": false,
-      ],
+      "properties": properties,
     ])
     do {
       let (_, response) = try await session.data(for: request)
@@ -56,6 +52,19 @@ final class Telemetry {
       Logger.app.error(
         "Telemetry could not be sent: \(error.localizedDescription, privacy: .public)")
     }
+  }
+
+  private var properties: [String: Any] {
+    let system = ProcessInfo.processInfo.operatingSystemVersion
+    var properties: [String: Any] = [
+      "$os_name": "macOS",
+      "$os_version": "\(system.majorVersion).\(system.minorVersion).\(system.patchVersion)",
+      "$process_person_profile": false,
+    ]
+    properties["$app_namespace"] = bundle.bundleIdentifier
+    properties["$app_name"] = bundle.object(forInfoDictionaryKey: "CFBundleName")
+    properties["$app_version"] = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+    return properties
   }
 
   private var identifier: String {

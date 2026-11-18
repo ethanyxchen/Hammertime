@@ -5,13 +5,24 @@ import Testing
 
 @MainActor
 struct TelemetryTests {
-  @Test func reportsOncePerDayWithAStableAnonymousIdentifier() async throws {
+  @Test func reportsOncePerDayAsTheAppWithAStableAnonymousIdentifier() async throws {
     let suite = UUID().uuidString
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CapturingProtocol.self]
-    let telemetry = Telemetry(defaults: defaults, session: URLSession(configuration: configuration))
+    let bundleURL = URL.temporaryDirectory.appending(path: "\(UUID()).app")
+    defer { try? FileManager.default.removeItem(at: bundleURL) }
+    try FileManager.default.createDirectory(
+      at: bundleURL.appending(path: "Contents"), withIntermediateDirectories: true)
+    try NSDictionary(dictionary: [
+      "CFBundleIdentifier": "com.ethanyxchen.hammertime",
+      "CFBundleName": "Hammertime",
+      "CFBundleShortVersionString": "1.2.3",
+    ]).write(to: bundleURL.appending(path: "Contents/Info.plist"))
+    let telemetry = Telemetry(
+      bundle: try #require(Bundle(url: bundleURL)), defaults: defaults,
+      session: URLSession(configuration: configuration))
     let morning = Date(timeIntervalSince1970: 1_800_000_000)
 
     await telemetry.reportIfDue(at: morning)
@@ -24,7 +35,9 @@ struct TelemetryTests {
     #expect(bodies.map { $0["event"] as? String } == ["app_active", "app_active"])
     #expect(bodies[0]["distinct_id"] as? String == bodies[1]["distinct_id"] as? String)
     let properties = try #require(bodies[0]["properties"] as? [String: Any])
-    #expect(properties["app"] as? String == "hammertime")
+    #expect(properties["$app_namespace"] as? String == "com.ethanyxchen.hammertime")
+    #expect(properties["$app_name"] as? String == "Hammertime")
+    #expect(properties["$app_version"] as? String == "1.2.3")
   }
 }
 
