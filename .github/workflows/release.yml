@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -29,8 +29,12 @@ jobs:
           base64 --decode <<<"$DEVELOPER_ID_P12" >"$RUNNER_TEMP/developer-id.p12"
           security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" \
             -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/developer-id.p12"
           security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
-          security list-keychains -d user -s "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ { print $2; exit }')"
+          test -n "$identity"
+          printf 'CODESIGN_IDENTITY=%s\n' "$identity" >>"$GITHUB_ENV"
 
       - name: Build, sign and notarize
         env:
@@ -91,6 +95,9 @@ jobs:
           git pull --rebase
           git push
 
-      - name: Remove signing keychain
+      - name: Remove signing keychain and keys
         if: always()
-        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -rf "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/sparkle.key" \
+            "$RUNNER_TEMP/tap-key" "$RUNNER_TEMP/tap"
