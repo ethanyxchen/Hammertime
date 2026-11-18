@@ -162,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     preview: ProcessInfo.processInfo.arguments.contains("--preview")
       || ProcessInfo.processInfo.arguments.contains("--preview-dark"))
   let softwareUpdate = SoftwareUpdate()
+  private let telemetry = Telemetry()
   private var banner: MergeBanner?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -186,10 +187,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           exit(1)
         }
       }
-    } else if model.opensWindowAtLaunch,
-      !ProcessInfo.processInfo.arguments.contains("--no-activate")
-    {
-      NSApplication.shared.activate(ignoringOtherApps: true)
+    } else {
+      if !model.isPreview { telemetry.start() }
+      if model.opensWindowAtLaunch, !ProcessInfo.processInfo.arguments.contains("--no-activate") {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+      }
     }
   }
 
