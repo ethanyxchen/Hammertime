@@ -33,6 +33,10 @@ To add another account, run `gh auth login` for it, which also makes it GitHub C
 
 Targets, workspace colours, pinned and renamed organisations, and repository selections sync through a secret gist named `hammertime.json` on the first connected account. Connect that account on another Mac and its settings arrive; changes on either Mac reach the other within a minute. When a Mac syncs for the first time, the gist's settings replace its own. GitHub CLI's default sign in includes gist access; if yours does not, run `gh auth refresh -s gist` and reconnect.
 
+## Usage counting
+
+Once a day, Hammertime sends PostHog a single `app_active` event with a random identifier, its version and the macOS version, so we know how many people use it. It never sends GitHub accounts, repositories or pull requests.
+
 ## Credits
 
 - ["Sledgehammer"](https://sketchfab.com/3d-models/sledgehammer-8194ce123fd64429b183c26df7fba17e) by Yaroslav Lazun, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

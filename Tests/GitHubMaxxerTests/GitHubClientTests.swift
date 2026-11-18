@@ -195,11 +195,11 @@ private struct StubResponse: Sendable {
   var body: String
 }
 
-private final class LockedValues<Value: Sendable>: @unchecked Sendable {
+final class LockedValues<Value: Sendable>: @unchecked Sendable {
   private let lock = NSLock()
   private var stored: [Value] = []
   var values: [Value] { lock.withLock { stored } }
-  func append(_ value: Value) -> Int {
+  @discardableResult func append(_ value: Value) -> Int {
     lock.withLock {
       let index = stored.count
       stored.append(value)
