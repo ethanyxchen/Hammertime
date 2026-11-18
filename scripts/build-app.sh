@@ -30,6 +30,9 @@ tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo v0.0.0)"
 version="${tag#v}"
 plutil -insert CFBundleShortVersionString -string "$version" "$app_bundle/Contents/Info.plist"
 plutil -insert CFBundleVersion -string "$version" "$app_bundle/Contents/Info.plist"
+if [[ -n "${POSTHOG_PROJECT_TOKEN:-}" ]]; then
+  plutil -insert PostHogProjectToken -string "$POSTHOG_PROJECT_TOKEN" "$app_bundle/Contents/Info.plist"
+fi
 cp Resources/AppIcon.icns "$app_bundle/Contents/Resources/AppIcon.icns"
 cp Sources/GitHubMaxxer/Resources/* "$app_bundle/Contents/Resources/"
 plutil -lint "$app_bundle/Contents/Info.plist"
