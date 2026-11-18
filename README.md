@@ -35,7 +35,7 @@ Targets, workspace colours, pinned and renamed organisations, and repository sel
 
 ## Usage counting
 
-Once a day, Hammertime sends PostHog a single `app_active` event with a random identifier, the app's name and version, and the macOS version, so we know how many people use it. It never sends GitHub accounts, repositories or pull requests.
+Once a day, released builds of Hammertime send PostHog a single `app_active` event with a random identifier, the app's name and version, and the macOS version, so we know how many people use it. Builds made from source send nothing. It never sends GitHub accounts, repositories or pull requests.
 
 ## Credits
 

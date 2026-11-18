@@ -4,7 +4,6 @@ import os
 @MainActor
 final class Telemetry {
   private static let endpoint = URL(string: "https://eu.i.posthog.com/i/v0/e/")!
-  private static let projectKey = "phc_oD466wk7pH93TruVPWHTEdAwMC57LJwoAJgZqgcHokYH"
   private static let identifierKey = "telemetryIdentifier"
   private static let reportedKey = "telemetryReported"
 
@@ -30,6 +29,8 @@ final class Telemetry {
   }
 
   func reportIfDue(at date: Date) async {
+    guard let projectToken = bundle.object(forInfoDictionaryKey: "PostHogProjectToken") as? String
+    else { return }
     if let reported = defaults.object(forKey: Self.reportedKey) as? Date,
       Calendar.current.isDate(reported, inSameDayAs: date)
     {
@@ -39,7 +40,7 @@ final class Telemetry {
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try? JSONSerialization.data(withJSONObject: [
-      "api_key": Self.projectKey,
+      "api_key": projectToken,
       "event": "app_active",
       "distinct_id": identifier,
       "properties": properties,
