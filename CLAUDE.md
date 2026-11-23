@@ -7,3 +7,7 @@ The one exception is `./scripts/replay-slam.sh`, which replays the merge celebra
 # Compiler warnings
 
 The build must stay free of compiler warnings. The pre-commit hook in `.githooks/pre-commit` compiles with warnings treated as errors and blocks the commit when any appear; enable it once per clone with `git config core.hooksPath .githooks`. Whenever a build, `./scripts/build-app.sh`, or the hook reports a warning, fix its cause in the code right away, even when the warning is in code you did not touch. Never silence a warning, suppress a diagnostic, or bypass the hook with `--no-verify`.
+
+# Versioning
+
+Releases are tagged `vMAJOR.MINOR.PATCH` on `main`, and the tag sets the app's version. The patch number's parity says what a release ships: even for a feature release, odd for a release of only bug fixes. Tag the next release with the smallest patch number above the latest tag that has the right parity: from `v1.2.1`, a feature release is `v1.2.2` and a bug-fix release is `v1.2.3`; from `v1.2.2`, a feature release is `v1.2.4` and a bug-fix release is `v1.2.3`. Never bump the minor or major number yourself; those upgrades are made only by the owner.
