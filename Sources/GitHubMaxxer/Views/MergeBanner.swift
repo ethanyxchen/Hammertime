@@ -14,15 +14,19 @@ final class MergeBanner {
   private static let lifetime = 8.0
   fileprivate static let exit = 0.35
   private let model: AppModel
-  private let panel = NSPanel(
-    contentRect: CGRect(origin: .zero, size: canvas),
-    styleMask: [.borderless, .nonactivatingPanel],
-    backing: .buffered, defer: true)
-  private let canvas: NSView
+  private var panel: NSPanel?
+  private var occlusion: (any NSObjectProtocol)?
   private var shown: Date?
 
   init(model: AppModel) {
     self.model = model
+    observe()
+  }
+
+  private func makePanel(frame: CGRect, canvasOrigin: CGPoint) -> NSPanel {
+    let panel = NSPanel(
+      contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+      defer: false)
     panel.level = NSWindow.Level(NSWindow.Level.screenSaver.rawValue + 1)
     panel.collectionBehavior = [
       .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
@@ -32,23 +36,25 @@ final class MergeBanner {
     panel.hasShadow = false
     panel.hidesOnDeactivate = false
     panel.canHide = false
-    canvas = NSHostingView(
+    let canvas = NSHostingView(
       rootView: BannerStage(dismiss: model.releaseBanner).environment(model)
         .frame(width: Self.canvas.width, height: Self.canvas.height))
-    canvas.frame.size = Self.canvas
+    canvas.frame = CGRect(origin: canvasOrigin, size: Self.canvas)
     panel.contentView = NSView()
     panel.contentView?.addSubview(canvas)
-    NotificationCenter.default.addObserver(
-      forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
-    ) { [weak self] _ in
-      MainActor.assumeIsolated { self?.logState("occlusion changed") }
-    }
-    observe()
+    return panel
   }
 
-  private func logState(_ moment: String) {
+  private func dismantle() {
+    occlusion.map(NotificationCenter.default.removeObserver)
+    occlusion = nil
+    panel?.orderOut(nil)
+    panel = nil
+  }
+
+  private func logState(_ moment: String, of panel: NSPanel) {
     Logger.merges.log(
-      "Banner \(moment, privacy: .public): visible \(self.panel.occlusionState.contains(.visible)), ordered in \(self.panel.isVisible), on active space \(self.panel.isOnActiveSpace), screen \(self.panel.screen?.localizedName ?? "none", privacy: .public), app active \(NSApp.isActive), app hidden \(NSApp.isHidden), app occlusion visible \(NSApp.occlusionState.contains(.visible))"
+      "Banner \(moment, privacy: .public): visible \(panel.occlusionState.contains(.visible)), ordered in \(panel.isVisible), on active space \(panel.isOnActiveSpace), screen \(panel.screen?.localizedName ?? "none", privacy: .public), app active \(NSApp.isActive), app hidden \(NSApp.isHidden), app occlusion visible \(NSApp.occlusionState.contains(.visible))"
     )
   }
 
@@ -76,12 +82,12 @@ final class MergeBanner {
   private func present(_ banner: Landing?) {
     guard let banner else {
       shown = nil
+      guard let departing = panel else { return }
       Task {
         try? await Task.sleep(for: .seconds(Self.exit))
-        if shown == nil, panel.isVisible {
-          panel.orderOut(nil)
-          Logger.merges.log("Hid banner")
-        }
+        guard shown == nil, panel === departing else { return }
+        dismantle()
+        Logger.merges.log("Hid banner")
       }
       return
     }
@@ -93,17 +99,26 @@ final class MergeBanner {
       return
     }
     shown = banner.date
+    dismantle()
     let placement = Self.placement(frame: screen.frame, visible: screen.visibleFrame)
-    panel.setFrame(placement.panel, display: false)
-    canvas.setFrameOrigin(placement.canvas)
+    let panel = makePanel(frame: placement.panel, canvasOrigin: placement.canvas)
+    self.panel = panel
+    occlusion = NotificationCenter.default.addObserver(
+      forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+    ) { [weak self, weak panel] _ in
+      MainActor.assumeIsolated {
+        guard let panel else { return }
+        self?.logState("occlusion changed", of: panel)
+      }
+    }
     panel.orderFrontRegardless()
     Logger.merges.log(
-      "Showed banner on \(screen.localizedName, privacy: .public) at \(String(describing: self.panel.frame), privacy: .public)"
+      "Showed banner on \(screen.localizedName, privacy: .public) at \(String(describing: panel.frame), privacy: .public)"
     )
-    logState("shown")
+    logState("shown", of: panel)
     Task {
       try? await Task.sleep(for: .seconds(Slam.impact))
-      logState("at impact")
+      logState("at impact", of: panel)
       try? await Task.sleep(for: .seconds(Self.lifetime - Slam.impact))
       if shown == banner.date { model.releaseBanner() }
     }
