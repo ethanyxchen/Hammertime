@@ -73,7 +73,9 @@ private struct MenuBarLabel: View {
   var body: some View {
     let today = model.progress(for: .day)
     Group {
-      if model.isReached(.day) {
+      if !model.notices.isEmpty {
+        Image(nsImage: .attentionMark)
+      } else if model.isReached(.day) {
         Image(systemName: "checkmark.circle.fill")
       } else {
         Image(nsImage: .mark)
@@ -116,6 +118,21 @@ private struct MenuBarView: View {
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
+    if !model.notices.isEmpty {
+      Section("Needs Attention") {
+        ForEach(model.notices) { notice in
+          Button {
+            model.show(notice)
+            openWindow(id: "main")
+            NSApplication.shared.activate(ignoringOtherApps: true)
+          } label: {
+            Text(notice.title)
+            Text(notice.detail)
+          }
+        }
+      }
+      Divider()
+    }
     Section(GoalPeriod.day.title) {
       ForEach(model.workspaces, id: \.self) { workspace in
         let progress = model.progress(for: .day, filter: workspace)
@@ -164,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   let softwareUpdate = SoftwareUpdate()
   private let telemetry = Telemetry()
   private var banner: MergeBanner?
+  private var notifier: NoticeNotifier?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     banner = MergeBanner(model: model)
@@ -189,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     } else {
       if !model.isPreview { telemetry.start() }
+      notifier = NoticeNotifier(model: model)
       if model.opensWindowAtLaunch, !ProcessInfo.processInfo.arguments.contains("--no-activate") {
         NSApplication.shared.activate(ignoringOtherApps: true)
       }
@@ -204,13 +223,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension Notification.Name {
-  fileprivate static let reopenHammertime = Notification.Name("reopenHammertime")
+  static let reopenHammertime = Notification.Name("reopenHammertime")
 }
 
 extension NSImage {
   static let mark: NSImage = {
     let image = Bundle.main.image(forResource: "Mark")!
     image.size = NSSize(width: 18, height: 18)
+    image.isTemplate = true
+    return image
+  }()
+
+  static let attentionMark: NSImage = {
+    let image = NSImage(size: mark.size, flipped: false) { bounds in
+      mark.draw(in: bounds)
+      let dot = NSRect(x: bounds.maxX - 6, y: bounds.maxY - 6, width: 6, height: 6)
+      NSGraphicsContext.current?.compositingOperation = .clear
+      NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+      NSGraphicsContext.current?.compositingOperation = .sourceOver
+      NSColor.black.setFill()
+      NSBezierPath(ovalIn: dot).fill()
+      return true
+    }
     image.isTemplate = true
     return image
   }()

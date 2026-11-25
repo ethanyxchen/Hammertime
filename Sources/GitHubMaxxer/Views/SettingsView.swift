@@ -33,30 +33,24 @@ struct SettingsView: View {
         }
         SettingsSection("GitHub connections") {
           ForEach(model.connections) { connection in
-            VStack(alignment: .leading, spacing: 10) {
-              HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "person.crop.circle.fill")
-                  .font(.title).foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 4) {
-                  ConnectionNameField(connection: connection)
-                  Link("@\(connection.profile.login)", destination: connection.profileURL)
-                    .font(.callout)
-                }
-                Spacer()
-                Menu {
-                  Button("Reconnect…") { connect(connection) }
-                  Divider()
-                  Button("Disconnect…", role: .destructive) { removing = connection }
-                } label: {
-                  Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton).fixedSize().disabled(model.isPreview)
-                .accessibilityLabel("Manage \(connection.label)")
+            HStack(alignment: .top, spacing: 12) {
+              Image(systemName: "person.crop.circle.fill")
+                .font(.title).foregroundStyle(.secondary)
+              VStack(alignment: .leading, spacing: 4) {
+                ConnectionNameField(connection: connection)
+                Link("@\(connection.profile.login)", destination: connection.profileURL)
+                  .font(.callout)
               }
-              if let error = model.connectionErrors[connection.id] {
-                Label(error, systemImage: "exclamationmark.circle")
-                  .font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+              Spacer()
+              Menu {
+                Button("Reconnect…") { connect(connection) }
+                Divider()
+                Button("Disconnect…", role: .destructive) { removing = connection }
+              } label: {
+                Image(systemName: "ellipsis.circle")
               }
+              .menuStyle(.borderlessButton).fixedSize().disabled(model.isPreview)
+              .accessibilityLabel("Manage \(connection.label)")
             }
           }
         } accessory: {

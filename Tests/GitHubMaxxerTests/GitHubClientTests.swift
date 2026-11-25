@@ -27,6 +27,17 @@ struct GitHubClientTests {
     #expect(profile.displayName == "alex")
   }
 
+  @Test func countsOrganizationsHiddenBySingleSignOn() async throws {
+    let hidden = client { request in
+      #expect(request.url?.path() == "/user/repos")
+      return StubResponse(
+        headers: ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"], body: "[]")
+    }
+    #expect(try await hidden.singleSignOnHiddenOrganizations() == 2)
+    let visible = client { _ in StubResponse(body: "[]") }
+    #expect(try await visible.singleSignOnHiddenOrganizations() == 0)
+  }
+
   @Test func rejectsUnauthorizedCredential() async {
     let client = client { _ in StubResponse(status: 401, body: "{}") }
     await #expect(throws: GitHubError.self) { try await client.profile() }
@@ -192,6 +203,7 @@ func requestBody(_ request: URLRequest) throws -> [String: Any] {
 
 private struct StubResponse: Sendable {
   var status = 200
+  var headers: [String: String]?
   var body: String
 }
 
@@ -229,7 +241,8 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
       client?.urlProtocol(
         self,
         didReceive: HTTPURLResponse(
-          url: request.url!, statusCode: response.status, httpVersion: nil, headerFields: nil)!,
+          url: request.url!, statusCode: response.status, httpVersion: nil,
+          headerFields: response.headers)!,
         cacheStoragePolicy: .notAllowed)
       client?.urlProtocol(self, didLoad: Data(response.body.utf8))
       client?.urlProtocolDidFinishLoading(self)

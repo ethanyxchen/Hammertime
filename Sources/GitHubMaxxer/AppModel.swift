@@ -136,6 +136,13 @@ extension Workspaces {
   }
 }
 
+struct Notice: Identifiable, Equatable {
+  let id: String
+  let title: String
+  let detail: String
+  var signIn: UUID?
+}
+
 struct SyncedSettings: Codable, Equatable {
   static let file = "hammertime.json"
   static let description = "Hammertime settings"
@@ -184,6 +191,7 @@ extension SavedState {
 @Observable
 final class AppModel {
   var destination: Destination = .activity(.all)
+  var connectionDraft: ConnectionDraft?
   private(set) var connections: [AccountConnection] = [] {
     didSet { roster = Roster(connections) }
   }
@@ -192,9 +200,10 @@ final class AppModel {
   private(set) var organizationPreferences = OrganizationPreferences()
   private(set) var isRefreshing = false
   private(set) var isConnecting = false
-  private(set) var connectionErrors: [UUID: String] = [:]
-  private(set) var storageError: String?
-  private(set) var syncError: String?
+  private var connectionErrors: [UUID: any Error] = [:]
+  private(set) var hiddenOrganizations: [UUID: Int] = [:]
+  private var storageNotice: Notice?
+  private var syncNotice: Notice?
   private(set) var now = Date.now
   private(set) var landing: Landing?
   private(set) var icons: [String: NSImage] = [:]
@@ -235,7 +244,9 @@ final class AppModel {
         organizationPreferences = state.organizations
         synced = state.synced
       } catch {
-        storageError = "Saved activity could not be loaded. \(error.localizedDescription)"
+        storageNotice = Notice(
+          id: "storage", title: "Saved activity couldn't be loaded",
+          detail: error.localizedDescription)
       }
     }
     roster = Roster(connections)
@@ -364,11 +375,48 @@ final class AppModel {
   private var personalLogins: Set<String> { roster.personalLogins }
 
   var lastUpdated: Date? { connections.map { $0.snapshot.fetchedAt }.min() }
-  var errors: [String] {
-    [storageError, syncError].compactMap(\.self)
-      + connections.compactMap { account in
-        connectionErrors[account.id].map { "\(account.label): \($0)" }
-      }
+  var notices: [Notice] {
+    [storageNotice, syncNotice].compactMap(\.self) + connections.flatMap(notices)
+  }
+
+  func show(_ notice: Notice) {
+    guard let id = notice.signIn else {
+      destination = .settings
+      return
+    }
+    connectionDraft = ConnectionDraft(
+      existing: connections.first { $0.id == id }, signsIn: true)
+  }
+
+  private func notices(for account: AccountConnection) -> [Notice] {
+    var notices: [Notice] = []
+    if let error = connectionErrors[account.id] {
+      let signIn = Self.needsSignIn(error)
+      notices.append(
+        Notice(
+          id: "refresh-\(account.id)", title: "\(account.label) couldn't refresh",
+          detail: error.localizedDescription, signIn: signIn ? account.id : nil))
+      if signIn { return notices }
+    }
+    let hidden = hiddenOrganizations[account.id, default: 0]
+    if hidden > 0 {
+      notices.append(
+        Notice(
+          id: "hidden-\(account.id)",
+          title:
+            "Hammertime can't see \(hidden) \(hidden == 1 ? "organization" : "organizations")",
+          detail: "Sign in again and authorize them on GitHub.", signIn: account.id))
+    }
+    return notices
+  }
+
+  private static func needsSignIn(_ error: any Error) -> Bool {
+    switch error {
+    case GitHubError.unauthorized, GitHubError.forbidden, CredentialError.invalidData,
+      is SyncError:
+      true
+    default: false
+    }
   }
 
   func progress(for period: GoalPeriod, filter: ActivityFilter = .all) -> GoalProgress {
@@ -416,6 +464,7 @@ final class AppModel {
     let fetchedAt = Date.now
     async let pulls = client.mergedPullRequests(
       from: Activity.historyInterval(endingAt: fetchedAt).start, through: fetchedAt)
+    async let hidden = try? client.singleSignOnHiddenOrganizations()
     let profile = try await client.profile()
     if let existing = connections.first(where: { $0.id == id }), existing.profile.id != profile.id {
       throw ConnectionError.wrongAccount(existing.profile.login)
@@ -442,6 +491,7 @@ final class AppModel {
         ))
     }
     connectionErrors[connectionID] = nil
+    hiddenOrganizations[connectionID] = await hidden
     now = .now
     if isFirst { slam(Landing([], joining: nil, since: now)) }
     persist()
@@ -452,6 +502,7 @@ final class AppModel {
     if !isPreview { try credentials.delete(for: id) }
     connections.removeAll { $0.id == id }
     connectionErrors[id] = nil
+    hiddenOrganizations[id] = nil
     persist()
   }
 
@@ -463,25 +514,27 @@ final class AppModel {
     let started = Date.now
     let results = await fetch { client, account in
       let interval = account.snapshot.refreshInterval(endingAt: started)
+      async let hidden = try? client.singleSignOnHiddenOrganizations()
       let pulls = try await client.mergedPullRequests(from: interval.start, through: interval.end)
       let known = Set(account.snapshot.pullRequests.map(\.id))
       let arrived = pulls.filter { !known.contains($0.id) }.map(\.repository)
       let icons = await Self.icons(of: arrived, from: client)
-      return (interval, pulls, icons)
+      return (interval, pulls, icons, await hidden)
     }
     for (id, result) in results {
       guard let index = connections.firstIndex(where: { $0.id == id }),
         connections[index].snapshot.fetchedAt <= started
       else { continue }
       switch result {
-      case .success(let (interval, pulls, fetched)):
+      case .success(let (interval, pulls, fetched, hidden)):
         for (repository, icon) in fetched { icons[repository] = icon.flatMap(NSImage.init(data:)) }
+        if let hidden { hiddenOrganizations[id] = hidden }
         let known = Set(merged.map(\.id))
         connections[index].snapshot.record(pulls, mergedIn: interval)
         land(Set(merged.map(\.id)).subtracting(known), since: started)
         connectionErrors[id] = nil
       case .failure(is CancellationError): return
-      case .failure(let error): connectionErrors[id] = error.localizedDescription
+      case .failure(let error): connectionErrors[id] = error
       }
     }
     persist()
@@ -515,7 +568,7 @@ final class AppModel {
         changed = true
       case .success: continue
       case .failure(is CancellationError): return
-      case .failure(let error): connectionErrors[id] = error.localizedDescription
+      case .failure(let error): connectionErrors[id] = error
       }
     }
     if changed { persist() }
@@ -628,7 +681,7 @@ final class AppModel {
 
   private func exchangeSettings() async {
     guard let primary = connections.first else {
-      syncError = nil
+      syncNotice = nil
       return
     }
     guard let token = try? credentials.read(for: primary.id) else { return }
@@ -648,10 +701,12 @@ final class AppModel {
           gist.id, file: SyncedSettings.file, content: try local.content())
         synced = SyncedGist(account: primary.id, gist: updated)
       }
-      syncError = nil
+      syncNotice = nil
       save()
     } catch {
-      syncError = "Settings could not sync with GitHub. \(error.localizedDescription)"
+      syncNotice = Notice(
+        id: "sync", title: "Settings couldn't sync with GitHub",
+        detail: error.localizedDescription, signIn: Self.needsSignIn(error) ? primary.id : nil)
     }
   }
 
@@ -706,9 +761,10 @@ final class AppModel {
         organizations: organizationPreferences, synced: synced)
       try JSONEncoder().encode(state).write(to: stateURL, options: .atomic)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stateURL.path)
-      storageError = nil
+      storageNotice = nil
     } catch {
-      storageError = "Changes could not be saved. \(error.localizedDescription)"
+      storageNotice = Notice(
+        id: "storage", title: "Changes couldn't be saved", detail: error.localizedDescription)
     }
   }
 }
@@ -716,7 +772,7 @@ final class AppModel {
 private enum SyncError: LocalizedError {
   case gistAccess
   var errorDescription: String? {
-    "It needs gist access. Run gh auth refresh -s gist, then reconnect the account."
+    "Hammertime needs gist access to keep your settings in step across your Macs."
   }
 }
 
