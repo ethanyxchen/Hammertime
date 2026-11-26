@@ -491,7 +491,7 @@ final class AppModel {
         ))
     }
     connectionErrors[connectionID] = nil
-    hiddenOrganizations[connectionID] = await hidden
+    if let hidden = await hidden { hiddenOrganizations[connectionID] = hidden }
     now = .now
     if isFirst { slam(Landing([], joining: nil, since: now)) }
     persist()

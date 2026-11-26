@@ -7,12 +7,13 @@ final class NoticeNotifier: NSObject, UNUserNotificationCenterDelegate {
   private static let category = "sign-in"
   private let model: AppModel
   private let center = UNUserNotificationCenter.current()
-  private var posted: Set<String> = []
+  private var posted: [String: Notice] = [:]
 
   init(model: AppModel) {
     self.model = model
     super.init()
     center.delegate = self
+    center.removeAllDeliveredNotifications()
     center.setNotificationCategories([
       UNNotificationCategory(
         identifier: Self.category,
@@ -31,13 +32,14 @@ final class NoticeNotifier: NSObject, UNUserNotificationCenterDelegate {
 
   private func post(_ notices: [Notice]) async {
     let current = Set(notices.map(\.id))
-    center.removeDeliveredNotifications(withIdentifiers: Array(posted.subtracting(current)))
-    posted.formIntersection(current)
-    for notice in notices where !posted.contains(notice.id) {
+    let cleared = posted.keys.filter { !current.contains($0) }
+    center.removeDeliveredNotifications(withIdentifiers: cleared)
+    for id in cleared { posted[id] = nil }
+    for notice in notices where posted[notice.id] != notice {
       guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else {
         continue
       }
-      posted.insert(notice.id)
+      posted[notice.id] = notice
       let content = UNMutableNotificationContent()
       content.title = notice.title
       content.body = notice.detail

@@ -36,6 +36,10 @@ struct GitHubClientTests {
     #expect(try await hidden.singleSignOnHiddenOrganizations() == 2)
     let visible = client { _ in StubResponse(body: "[]") }
     #expect(try await visible.singleSignOnHiddenOrganizations() == 0)
+    for header in ["partial-results", "partial-results; organizations="] {
+      let unnamed = client { _ in StubResponse(headers: ["X-GitHub-SSO": header], body: "[]") }
+      #expect(try await unnamed.singleSignOnHiddenOrganizations() == 0)
+    }
   }
 
   @Test func rejectsUnauthorizedCredential() async {

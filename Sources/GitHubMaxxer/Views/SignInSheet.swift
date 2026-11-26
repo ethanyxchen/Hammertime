@@ -83,7 +83,7 @@ struct SignInSheet: View {
     step = .code
     signIn = Task {
       do {
-        let token = try await GitHubCLI.signIn { shown in
+        let token = try await GitHubCLI.signIn(as: connection.profile.login) { shown in
           NSPasteboard.general.clearContents()
           NSPasteboard.general.setString(shown, forType: .string)
           code = shown

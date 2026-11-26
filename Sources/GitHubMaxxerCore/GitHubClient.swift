@@ -100,11 +100,14 @@ public struct GitHubClient: Sendable {
 
   public func singleSignOnHiddenOrganizations() async throws -> Int {
     let (_, response) = try await send("user/repos?per_page=1")
+    let field = "organizations="
     guard let header = response.value(forHTTPHeaderField: "X-GitHub-SSO"),
       header.hasPrefix("partial-results"),
-      let organizations = header.split(separator: "organizations=").last
+      let organizations = header.split(separator: ";")
+        .map({ $0.trimmingCharacters(in: .whitespaces) })
+        .first(where: { $0.hasPrefix(field) })
     else { return 0 }
-    return organizations.split(separator: ",").count
+    return organizations.dropFirst(field.count).split(separator: ",").count
   }
 
   public func gist(named file: String, description: String) async throws -> Gist? {

@@ -14,6 +14,24 @@ struct SettingsView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
+        if !model.notices.isEmpty {
+          SettingsSection("Needs attention") {
+            ForEach(model.notices) { notice in
+              HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                  Text(notice.title).fontWeight(.medium)
+                  Text(notice.detail).font(.callout).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                }
+                Spacer()
+                if notice.signIn != nil {
+                  Button("Sign In Again") { model.show(notice) }
+                }
+              }
+            }
+          }
+        }
         SettingsSection("Daily merged PR targets") {
           LabeledContent("Use targets") {
             Toggle(
