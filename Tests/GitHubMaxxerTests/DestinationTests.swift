@@ -13,7 +13,7 @@ struct DestinationTests {
         == .activity(.organization("acme")))
     #expect(
       Destination.activity(.organization("acme")).step(1, through: activities) == .repositories)
-    #expect(Destination.settings.step(1, through: activities) == .activity(.all))
-    #expect(Destination.activity(.all).step(-1, through: activities) == .settings)
+    #expect(Destination.repositories.step(1, through: activities) == .activity(.all))
+    #expect(Destination.activity(.all).step(-1, through: activities) == .repositories)
   }
 }

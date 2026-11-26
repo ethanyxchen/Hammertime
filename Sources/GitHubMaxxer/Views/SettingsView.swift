@@ -1,9 +1,103 @@
 import GitHubMaxxerCore
 import SwiftUI
 
-struct SettingsView: View {
+enum SettingsPane: CaseIterable {
+  case targets, accounts, general
+
+  var title: String {
+    switch self {
+    case .targets: "Targets"
+    case .accounts: "Accounts"
+    case .general: "General"
+    }
+  }
+
+  var symbol: String {
+    switch self {
+    case .targets: "target"
+    case .accounts: "person.crop.circle"
+    case .general: "gearshape"
+    }
+  }
+}
+
+struct SettingsPanel: View {
+  @Environment(AppModel.self) private var model
+  let pane: SettingsPane
+  let connect: (AccountConnection?) -> Void
+
+  var body: some View {
+    ZStack {
+      Color.black.opacity(0.2).ignoresSafeArea()
+        .contentShape(.rect).onTapGesture(perform: close)
+      VStack(spacing: 0) {
+        HStack {
+          Text("Settings").font(.headline)
+          Spacer()
+          Button("Close", systemImage: "xmark", action: close)
+            .labelStyle(.iconOnly).buttonStyle(.borderless)
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        Divider()
+        HStack(spacing: 0) {
+          VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsPane.allCases, id: \.self) { item in
+              PaneRow(
+                pane: item, isSelected: item == pane,
+                needsAttention: item == .accounts && !model.notices.isEmpty
+              ) { model.settingsPane = item }
+            }
+            Spacer()
+          }
+          .padding(10).frame(width: 180)
+          Divider()
+          ScrollView {
+            SettingsView(pane: pane, connect: connect).padding(20)
+          }
+          .id(pane)
+        }
+      }
+      .frame(width: 760, height: 540)
+      .background(.background, in: .rect(cornerRadius: 14))
+      .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
+      .shadow(color: .black.opacity(0.2), radius: 30, y: 12)
+    }
+  }
+
+  private func close() { model.settingsPane = nil }
+}
+
+private struct PaneRow: View {
+  let pane: SettingsPane
+  let isSelected: Bool
+  let needsAttention: Bool
+  let select: () -> Void
+
+  var body: some View {
+    Button(action: select) {
+      HStack(spacing: 8) {
+        Image(systemName: pane.symbol).frame(width: 18)
+        Text(pane.title)
+        Spacer()
+        if needsAttention {
+          Circle().fill(.orange).frame(width: 7, height: 7).accessibilityLabel("Needs attention")
+        }
+      }
+      .padding(.horizontal, 8).padding(.vertical, 6)
+      .background(
+        isSelected ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6)
+      )
+      .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+private struct SettingsView: View {
   @Environment(AppModel.self) private var model
   @Environment(SoftwareUpdate.self) private var softwareUpdate
+  let pane: SettingsPane
   let connect: (AccountConnection?) -> Void
   @State private var removing: AccountConnection?
   @State private var removalError: String?
@@ -12,114 +106,14 @@ struct SettingsView: View {
   @State private var opensAtLogin = false
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        if !model.notices.isEmpty {
-          SettingsSection("Needs attention") {
-            ForEach(model.notices) { notice in
-              HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 4) {
-                  Text(notice.title).fontWeight(.medium)
-                  Text(notice.detail).font(.callout).foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                }
-                Spacer()
-                if notice.signIn != nil {
-                  Button("Sign In Again") { model.show(notice) }
-                }
-              }
-            }
-          }
-        }
-        SettingsSection("Targets") {
-          LabeledContent("Use targets") {
-            Toggle(
-              "Use targets",
-              isOn: Binding(get: { !model.countsOnly }, set: { model.setCountsOnly(!$0) })
-            )
-            .labelsHidden().toggleStyle(.switch).controlSize(.small)
-          }
-          if !model.countsOnly {
-            ForEach(model.workspaces, id: \.self) { TargetRow(workspace: $0) }
-            LabeledContent(ActivityFilter.all.title) {
-              let total = model.goals(for: .all)
-              Text("\(total.daily) a day · \(total.weekly) a week · \(total.monthly) a month")
-                .monospacedDigit()
-            }
-          }
-        }
-        SettingsSection("GitHub accounts") {
-          ForEach(model.connections) { connection in
-            HStack(alignment: .top, spacing: 12) {
-              Image(systemName: "person.crop.circle.fill")
-                .font(.title).foregroundStyle(.secondary)
-              VStack(alignment: .leading, spacing: 4) {
-                ConnectionNameField(connection: connection)
-                Link("@\(connection.profile.login)", destination: connection.profileURL)
-                  .font(.callout)
-              }
-              Spacer()
-              Menu {
-                Button("Reconnect…") { connect(connection) }
-                Divider()
-                Button("Disconnect…", role: .destructive) { removing = connection }
-              } label: {
-                Image(systemName: "ellipsis.circle")
-              }
-              .menuStyle(.borderlessButton).fixedSize().disabled(model.isPreview)
-              .accessibilityLabel("Manage \(connection.label)")
-            }
-          }
-        } accessory: {
-          Button("Add GitHub Connection…", systemImage: "plus") { connect(nil) }
-            .labelStyle(.iconOnly).buttonStyle(.accessoryBarAction)
-            .help("Add GitHub Connection…")
-            .disabled(model.isPreview)
-        }
-        SettingsSection("Activity") {
-          LabeledContent("Refresh", value: "Every minute while the app is running")
-          LabeledContent("History", value: "Merged PRs from the last 90 days")
-        }
-        SettingsSection("General") {
-          LabeledContent("Open at login") {
-            Toggle(
-              "Open at login",
-              isOn: Binding(
-                get: { opensAtLogin },
-                set: {
-                  LoginItem.setEnabled($0)
-                  opensAtLogin = LoginItem.isEnabled
-                })
-            )
-            .labelsHidden().toggleStyle(.switch).controlSize(.small)
-            .disabled(model.isPreview)
-          }
-          LabeledContent("Merge celebration sound") {
-            Toggle(
-              "Merge celebration sound",
-              isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
-            )
-            .labelsHidden().toggleStyle(.switch).controlSize(.small)
-          }
-        }
-        SettingsSection("Software update") {
-          LabeledContent("Check automatically") {
-            @Bindable var softwareUpdate = softwareUpdate
-            Toggle("Check automatically", isOn: $softwareUpdate.checksAutomatically)
-              .labelsHidden().toggleStyle(.switch).controlSize(.small)
-              .disabled(model.isPreview)
-          }
-          LabeledContent("Latest version") {
-            Button("Check for Updates…") { softwareUpdate.check() }
-              .disabled(!softwareUpdate.canCheck || model.isPreview)
-          }
-        }
+    VStack(alignment: .leading, spacing: 24) {
+      switch pane {
+      case .targets: targets
+      case .accounts: accounts
+      case .general: general
       }
-      .frame(maxWidth: 640, alignment: .leading)
-      .padding(20)
-      .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .onChange(of: appearsActive, initial: true) { opensAtLogin = LoginItem.isEnabled }
     .confirmationDialog(
       "Disconnect \(removing?.label ?? "GitHub")?",
@@ -145,6 +139,116 @@ struct SettingsView: View {
       Button("OK") { removalError = nil }
     } message: {
       Text(removalError ?? "")
+    }
+  }
+
+  @ViewBuilder private var targets: some View {
+    SettingsSection("Targets") {
+      LabeledContent("Use targets") {
+        Toggle(
+          "Use targets",
+          isOn: Binding(get: { !model.countsOnly }, set: { model.setCountsOnly(!$0) })
+        )
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+      }
+      if !model.countsOnly {
+        ForEach(model.workspaces, id: \.self) { TargetRow(workspace: $0) }
+        LabeledContent(ActivityFilter.all.title) {
+          let total = model.goals(for: .all)
+          Text("\(total.daily) a day · \(total.weekly) a week · \(total.monthly) a month")
+            .monospacedDigit()
+        }
+      }
+    }
+  }
+
+  @ViewBuilder private var accounts: some View {
+    if !model.notices.isEmpty {
+      SettingsSection("Needs attention") {
+        ForEach(model.notices) { notice in
+          HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+              Text(notice.title).fontWeight(.medium)
+              Text(notice.detail).font(.callout).foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            }
+            Spacer()
+            if notice.signIn != nil {
+              Button("Sign In Again") { model.show(notice) }
+            }
+          }
+        }
+      }
+    }
+    SettingsSection("GitHub accounts") {
+      ForEach(model.connections) { connection in
+        HStack(alignment: .top, spacing: 12) {
+          Image(systemName: "person.crop.circle.fill")
+            .font(.title).foregroundStyle(.secondary)
+          VStack(alignment: .leading, spacing: 4) {
+            ConnectionNameField(connection: connection)
+            Link("@\(connection.profile.login)", destination: connection.profileURL)
+              .font(.callout)
+          }
+          Spacer()
+          Menu {
+            Button("Reconnect…") { connect(connection) }
+            Divider()
+            Button("Disconnect…", role: .destructive) { removing = connection }
+          } label: {
+            Image(systemName: "ellipsis.circle")
+          }
+          .menuStyle(.borderlessButton).fixedSize().disabled(model.isPreview)
+          .accessibilityLabel("Manage \(connection.label)")
+        }
+      }
+    } accessory: {
+      Button("Add GitHub Connection…", systemImage: "plus") { connect(nil) }
+        .labelStyle(.iconOnly).buttonStyle(.accessoryBarAction)
+        .help("Add GitHub Connection…")
+        .disabled(model.isPreview)
+    }
+    SettingsSection("Activity") {
+      LabeledContent("Refresh", value: "Every minute while the app is running")
+      LabeledContent("History", value: "Merged PRs from the last 90 days")
+    }
+  }
+
+  @ViewBuilder private var general: some View {
+    SettingsSection("General") {
+      LabeledContent("Open at login") {
+        Toggle(
+          "Open at login",
+          isOn: Binding(
+            get: { opensAtLogin },
+            set: {
+              LoginItem.setEnabled($0)
+              opensAtLogin = LoginItem.isEnabled
+            })
+        )
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+        .disabled(model.isPreview)
+      }
+      LabeledContent("Merge celebration sound") {
+        Toggle(
+          "Merge celebration sound",
+          isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
+        )
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+      }
+    }
+    SettingsSection("Software update") {
+      LabeledContent("Check automatically") {
+        @Bindable var softwareUpdate = softwareUpdate
+        Toggle("Check automatically", isOn: $softwareUpdate.checksAutomatically)
+          .labelsHidden().toggleStyle(.switch).controlSize(.small)
+          .disabled(model.isPreview)
+      }
+      LabeledContent("Latest version") {
+        Button("Check for Updates…") { softwareUpdate.check() }
+          .disabled(!softwareUpdate.canCheck || model.isPreview)
+      }
     }
   }
 }

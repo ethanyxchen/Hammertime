@@ -191,6 +191,7 @@ extension SavedState {
 @Observable
 final class AppModel {
   var destination: Destination = .activity(.all)
+  var settingsPane: SettingsPane?
   var connectionDraft: ConnectionDraft?
   private(set) var connections: [AccountConnection] = [] {
     didSet { roster = Roster(connections) }
@@ -381,7 +382,7 @@ final class AppModel {
 
   func show(_ notice: Notice) {
     guard let id = notice.signIn else {
-      destination = .settings
+      settingsPane = .accounts
       return
     }
     connectionDraft = ConnectionDraft(

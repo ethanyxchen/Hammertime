@@ -3,13 +3,12 @@ import SwiftUI
 
 enum Destination: Hashable {
   case activity(ActivityFilter)
-  case repositories, settings
+  case repositories
 
   var title: String {
     switch self {
     case .activity(let filter): filter.title
     case .repositories: "Repositories"
-    case .settings: "Settings"
     }
   }
 
@@ -23,12 +22,11 @@ enum Destination: Hashable {
     case .activity(.personal): "person"
     case .activity(.organization): "building.2"
     case .repositories: "folder"
-    case .settings: "slider.horizontal.3"
     }
   }
 
   static func all(through activities: [ActivityFilter]) -> [Destination] {
-    activities.map(Destination.activity) + [.repositories, .settings]
+    activities.map(Destination.activity) + [.repositories]
   }
 
   func step(_ offset: Int, through activities: [ActivityFilter]) -> Destination {
@@ -224,6 +222,11 @@ struct RootView: View {
       }
     }
     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+    .overlay {
+      if let pane = model.settingsPane {
+        SettingsPanel(pane: pane) { model.connectionDraft = ConnectionDraft(existing: $0) }
+      }
+    }
     .overlay { HammerSlam(landing: model.landing).ignoresSafeArea() }
     .sheet(item: Bindable(model).connectionDraft) { draft in
       Group {
@@ -298,7 +301,7 @@ struct RootView: View {
       )
       .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: Self.sidebarWidth)
       .safeAreaInset(edge: .bottom, spacing: 0) {
-        SidebarFooter(isSelected: model.destination == .settings) { model.destination = .settings }
+        SidebarFooter(isSelected: model.settingsPane != nil) { model.settingsPane = .accounts }
       }
     } detail: {
       VStack(spacing: 0) {
@@ -449,8 +452,6 @@ struct RootView: View {
       ActivityView(filter: filter, title: title(for: model.destination), search: search)
     case .repositories:
       titled { RepositoriesView(search: search) }
-    case .settings:
-      titled { SettingsView { model.connectionDraft = ConnectionDraft(existing: $0) } }
     }
   }
 

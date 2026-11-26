@@ -538,6 +538,8 @@ struct AppModelTests {
     #expect(notice.detail.contains("503"))
     #expect(notice.signIn == nil)
     #expect(!model.isRefreshing)
+    model.show(notice)
+    #expect(model.settingsPane == .accounts)
     let reloaded = AppModel(stateURL: url, credentials: TestCredentials())
     #expect(reloaded.pullRequests == before)
   }
