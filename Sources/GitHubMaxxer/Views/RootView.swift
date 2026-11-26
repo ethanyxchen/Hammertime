@@ -198,6 +198,7 @@ private final class PageContainer: NSView {
 struct ConnectionDraft: Identifiable {
   let id = UUID()
   var existing: AccountConnection?
+  var signsIn = false
 }
 
 struct RootView: View {
@@ -207,7 +208,6 @@ struct RootView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.appearsActive) private var appearsActive
-  @State private var connectionDraft: ConnectionDraft?
   @State private var renaming: String?
   @State private var newName = ""
   @State private var showsShortcuts = false
@@ -217,7 +217,7 @@ struct RootView: View {
   var body: some View {
     Group {
       if model.isWelcoming {
-        WelcomeView { connectionDraft = ConnectionDraft() }
+        WelcomeView { model.connectionDraft = ConnectionDraft() }
           .toolbar(removing: .title)
       } else {
         navigation
@@ -225,9 +225,15 @@ struct RootView: View {
     }
     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     .overlay { HammerSlam(landing: model.landing).ignoresSafeArea() }
-    .sheet(item: $connectionDraft) { draft in
-      ConnectionSheet(existing: draft.existing)
-        .environment(model)
+    .sheet(item: Bindable(model).connectionDraft) { draft in
+      Group {
+        if draft.signsIn, let connection = draft.existing {
+          SignInSheet(connection: connection)
+        } else {
+          ConnectionSheet(existing: draft.existing)
+        }
+      }
+      .environment(model)
     }
     .onChange(of: scenePhase) { _, phase in
       if phase == .active { Task { await model.refresh() } }
@@ -304,9 +310,6 @@ struct RootView: View {
           }
           .font(.caption).padding(.horizontal, 24).padding(.vertical, 8)
           .background(.quaternary)
-        }
-        if let error = model.errors.first {
-          ErrorBanner(message: error, additionalCount: model.errors.count - 1)
         }
         content.frame(maxWidth: .infinity, maxHeight: .infinity)
       }
@@ -447,7 +450,7 @@ struct RootView: View {
     case .repositories:
       titled { RepositoriesView(search: search) }
     case .settings:
-      titled { SettingsView { existing in connectionDraft = ConnectionDraft(existing: existing) } }
+      titled { SettingsView { model.connectionDraft = ConnectionDraft(existing: $0) } }
     }
   }
 
@@ -502,7 +505,7 @@ private struct SidebarFooter: View {
     Button(action: select) {
       VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 8) {
-          Lamp(isOn: model.errors.isEmpty && model.lastUpdated != nil)
+          Lamp(isOn: model.notices.isEmpty && model.lastUpdated != nil)
           Text(
             model.connections.count == 1
               ? model.connections[0].label : "\(model.connections.count) accounts"
@@ -513,7 +516,7 @@ private struct SidebarFooter: View {
             .foregroundStyle(Palette.secondary)
         }
         Group {
-          if !model.errors.isEmpty {
+          if !model.notices.isEmpty {
             Text("Needs attention")
           } else if let date = model.lastUpdated {
             Text(
@@ -562,26 +565,5 @@ private struct WelcomeView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .padding(40)
-  }
-}
-
-struct ErrorBanner: View {
-  let message: String
-  var additionalCount = 0
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-      VStack(alignment: .leading, spacing: 4) {
-        Text(message).font(.callout).textSelection(.enabled)
-        if additionalCount > 0 {
-          Text("\(additionalCount) more connections need attention in Targets & Accounts.")
-            .font(.caption).foregroundStyle(.secondary)
-        }
-      }
-      Spacer(minLength: 0)
-    }
-    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-    .background(.orange.opacity(0.08))
   }
 }

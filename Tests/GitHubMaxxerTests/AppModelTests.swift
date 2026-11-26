@@ -392,7 +392,7 @@ struct AppModelTests {
     await model.syncSettings()
 
     #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 7))
-    #expect(model.errors.isEmpty)
+    #expect(model.notices.isEmpty)
   }
 
   @Test func syncReplacesAnUnreadableGistAndLeavesUnrelatedGistsAlone() async throws {
@@ -409,7 +409,7 @@ struct AppModelTests {
     #expect(GistProtocol.gists.count { $0.value.token == token } == 2)
     #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 2))
     #expect(GistProtocol.gists[unreadable] != nil)
-    #expect(model.errors.isEmpty)
+    #expect(model.notices.isEmpty)
   }
 
   @Test func gistSettingsWinTheFirstSyncAndKeepWhatThisMacCannotSee() async throws {
@@ -453,7 +453,7 @@ struct AppModelTests {
 
     remote.workspaces.personal.goals = Goals(daily: 9)
     #expect(GistProtocol.settings(for: token) == remote)
-    #expect(model.errors.isEmpty)
+    #expect(model.notices.isEmpty)
   }
 
   @Test func goalsSurviveRelaunchAndStayInRange() throws {
@@ -534,10 +534,57 @@ struct AppModelTests {
     await model.refresh()
     #expect(model.pullRequests == before)
     #expect(model.lastUpdated == updated)
-    #expect(model.connectionErrors[id]?.contains("503") == true)
+    let notice = try #require(model.notices.first)
+    #expect(notice.detail.contains("503"))
+    #expect(notice.signIn == nil)
     #expect(!model.isRefreshing)
     let reloaded = AppModel(stateURL: url, credentials: TestCredentials())
     #expect(reloaded.pullRequests == before)
+  }
+
+  @Test func rejectedSignInOffersToSignInAgain() async throws {
+    let (model, id) = try refreshingModel(SignInRejectedProtocol.self)
+    await model.refresh()
+    #expect(model.notices.map(\.signIn) == [id])
+  }
+
+  @Test func organizationsHiddenBySingleSignOnOfferToSignInAgain() async throws {
+    let (model, id) = try refreshingModel(SingleSignOnProtocol.self)
+    await model.refresh()
+    let notice = try #require(model.notices.first)
+    #expect(model.notices.count == 1)
+    #expect(notice.signIn == id)
+    #expect(notice.title.contains("can't see 2 organizations"))
+
+    model.show(notice)
+
+    let draft = try #require(model.connectionDraft)
+    #expect(draft.signsIn)
+    #expect(draft.existing?.id == id)
+  }
+
+  @Test func goingOfflineKeepsTheHiddenOrganizationsNotice() async throws {
+    let (model, id) = try refreshingModel(FlakySingleSignOnProtocol.self)
+    await model.refresh()
+    FlakySingleSignOnProtocol.isOffline = true
+    await model.refresh()
+    #expect(model.notices.map(\.id) == ["refresh-\(id)", "hidden-\(id)"])
+    #expect(model.notices.map(\.signIn) == [nil, id])
+  }
+
+  private func refreshingModel(_ protocolClass: AnyClass) throws -> (AppModel, UUID) {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let url = directory.appending(path: "state.json")
+    let connection = PreviewData.connections(now: .now)[0]
+    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+    let store = TestCredentials()
+    try store.save("test-credential", for: connection.id)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [protocolClass]
+    let model = AppModel(
+      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+    return (model, connection.id)
   }
 
   @Test func refreshLandsOnlyNewlyMergedPullRequests() async throws {
@@ -792,6 +839,53 @@ private final class UnavailableProtocol: URLProtocol, @unchecked Sendable {
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}
+}
+
+private final class SignInRejectedProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    client?.urlProtocol(
+      self,
+      didReceive: HTTPURLResponse(
+        url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data("{}".utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+private class SingleSignOnProtocol: URLProtocol, @unchecked Sendable {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let isRepositories = request.url!.path() == "/user/repos"
+    client?.urlProtocol(
+      self,
+      didReceive: HTTPURLResponse(
+        url: request.url!, statusCode: 200, httpVersion: nil,
+        headerFields: isRepositories
+          ? ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"] : nil)!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(
+      self,
+      didLoad: Data(
+        (isRepositories
+          ? "[]"
+          : #"{"data":{"search":{"issueCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}"#)
+          .utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+private final class FlakySingleSignOnProtocol: SingleSignOnProtocol, @unchecked Sendable {
+  nonisolated(unsafe) static var isOffline = false
+  override func startLoading() {
+    guard Self.isOffline else { return super.startLoading() }
+    client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+  }
 }
 
 private final class MergedProtocol: URLProtocol, @unchecked Sendable {

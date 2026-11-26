@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os
 
 @MainActor
 protocol CredentialStorage {
@@ -50,6 +51,8 @@ struct CredentialStore: CredentialStorage {
 enum CredentialError: LocalizedError {
   case keychain(OSStatus)
   case invalidData, cliUnavailable, cliNotAuthenticated
+  case signInFailed(String)
+  case cliMissingAccount(String)
 
   var errorDescription: String? {
     switch self {
@@ -57,11 +60,14 @@ enum CredentialError: LocalizedError {
       "Keychain access was denied. Click Refresh and allow Hammertime to use this connection."
     case .keychain(let status):
       "Keychain could not access this connection (\(status)). Unlock your Mac or reconnect the account."
-    case .invalidData: "This saved credential could not be read. Reconnect the account."
+    case .invalidData: "This connection's saved sign-in could not be read."
     case .cliUnavailable:
       "GitHub CLI was not found. Install it with brew install gh, then run gh auth login."
     case .cliNotAuthenticated:
       "GitHub CLI is not signed in to github.com. Run gh auth login, then try again."
+    case .signInFailed(let reason): "GitHub CLI could not sign in. \(reason)"
+    case .cliMissingAccount(let login):
+      "GitHub CLI isn't signed in as @\(login). Run gh auth login with that account, then try again."
     }
   }
 }
@@ -82,14 +88,115 @@ enum GitHubCLI {
     }.value
   }
 
+  static let deviceURL = URL(string: "https://github.com/login/device")!
+
   static func token() async throws -> String {
     guard let executable = await executable() else { throw CredentialError.cliUnavailable }
-    return try await Task.detached {
-      let result = try run(executable, ["auth", "token", "--hostname", "github.com"])
-      let token = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard result.status == 0, !token.isEmpty else { throw CredentialError.cliNotAuthenticated }
+    return try await token(from: executable)
+  }
+
+  static func signIn(as login: String, showing code: @escaping @MainActor (String) -> Void)
+    async throws -> String
+  {
+    guard let executable = await executable() else { throw CredentialError.cliUnavailable }
+    try Task.checkCancellation()
+    return try await signIn(as: login, with: executable, showing: code)
+  }
+
+  static func signIn(
+    as login: String, with executable: URL, showing code: @escaping @MainActor (String) -> Void
+  ) async throws -> String {
+    let active = try await gh(
+      executable,
+      [
+        "auth", "status", "--active", "--hostname", "github.com", "--json", "hosts", "--jq",
+        #".hosts["github.com"][].login"#,
+      ]
+    ).output.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard active != login else { return try await refresh(with: executable, showing: code) }
+    guard try await gh(executable, switching(to: login)).status == 0 else {
+      throw CredentialError.cliMissingAccount(login)
+    }
+    do {
+      let token = try await refresh(with: executable, showing: code)
+      _ = try? await gh(executable, switching(to: active))
       return token
-    }.value
+    } catch {
+      _ = try? await gh(executable, switching(to: active))
+      throw error
+    }
+  }
+
+  private static func switching(to login: String) -> [String] {
+    ["auth", "switch", "--hostname", "github.com", "--user", login]
+  }
+
+  private static func refresh(
+    with executable: URL, showing code: @escaping @MainActor (String) -> Void
+  )
+    async throws -> String
+  {
+    let process = Process()
+    let errors = Pipe()
+    process.executableURL = executable
+    process.arguments = ["auth", "refresh", "--hostname", "github.com", "--scopes", "gist"]
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = errors
+    let log = OSAllocatedUnfairLock(initialState: "")
+    errors.fileHandleForReading.readabilityHandler = { handle in
+      let chunk = String(decoding: handle.availableData, as: UTF8.self)
+      let (before, after) = log.withLock {
+        let before = $0
+        $0 += chunk
+        return (before, $0)
+      }
+      guard let shown = deviceCode(in: after), deviceCode(in: before) == nil else { return }
+      Task { @MainActor in code(shown) }
+    }
+    defer { errors.fileHandleForReading.readabilityHandler = nil }
+    let cancelled = OSAllocatedUnfairLock(initialState: false)
+    let status = try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+        let failure: (any Error)? = cancelled.withLock { isCancelled in
+          guard !isCancelled else { return CancellationError() }
+          do { try process.run() } catch { return error }
+          return nil
+        }
+        if let failure { continuation.resume(throwing: failure) }
+      }
+    } onCancel: {
+      cancelled.withLock { isCancelled in
+        isCancelled = true
+        if process.isRunning { process.terminate() }
+      }
+    }
+    try Task.checkCancellation()
+    guard status == 0 else {
+      errors.fileHandleForReading.readabilityHandler = nil
+      let rest = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+      let reason = (log.withLock { $0 } + rest).split(whereSeparator: \.isNewline).last
+      throw CredentialError.signInFailed(reason.map(String.init) ?? "Try again.")
+    }
+    return try await token(from: executable)
+  }
+
+  private static func deviceCode(in text: String) -> String? {
+    text.firstMatch(of: /[A-Z0-9]{4}-[A-Z0-9]{4}/).map { String($0.output) }
+  }
+
+  private static func gh(_ executable: URL, _ arguments: [String]) async throws -> (
+    status: Int32, output: String
+  ) {
+    try await Task.detached { try run(executable, arguments) }.value
+  }
+
+  private static func token(from executable: URL) async throws -> String {
+    let result = try await gh(executable, ["auth", "token", "--hostname", "github.com"])
+    let token = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard result.status == 0, !token.isEmpty else { throw CredentialError.cliNotAuthenticated }
+    return token
   }
 
   private static func run(_ executable: URL, _ arguments: [String]) throws -> (

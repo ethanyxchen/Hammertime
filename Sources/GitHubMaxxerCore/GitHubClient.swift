@@ -98,6 +98,18 @@ public struct GitHubClient: Sendable {
     return result
   }
 
+  public func singleSignOnHiddenOrganizations() async throws -> Int {
+    let (_, response) = try await send("user/repos?per_page=1")
+    let field = "organizations="
+    guard let header = response.value(forHTTPHeaderField: "X-GitHub-SSO"),
+      header.hasPrefix("partial-results"),
+      let organizations = header.split(separator: ";")
+        .map({ $0.trimmingCharacters(in: .whitespaces) })
+        .first(where: { $0.hasPrefix(field) })
+    else { return 0 }
+    return organizations.dropFirst(field.count).split(separator: ",").count
+  }
+
   public func gist(named file: String, description: String) async throws -> Gist? {
     var page = 1
     while true {
@@ -226,9 +238,9 @@ public enum GitHubError: LocalizedError, Sendable {
 
   public var errorDescription: String? {
     switch self {
-    case .unauthorized: "GitHub rejected this connection. Sign in again."
+    case .unauthorized: "GitHub no longer accepts this connection's sign-in. Sign in again."
     case .forbidden:
-      "GitHub denied access. Check this connection's repository access and your organization's app approval or SSO authorization."
+      "GitHub denied access. An organization may need you to authorize single sign-on or approve GitHub CLI."
     case .rateLimited:
       "GitHub's request limit was reached. Your last activity is still available; try again later."
     case .invalidResponse: "GitHub returned an incomplete response. Try refreshing again."
