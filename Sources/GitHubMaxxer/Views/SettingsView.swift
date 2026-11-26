@@ -116,7 +116,9 @@ struct SettingsView: View {
           }
         }
       }
+      .frame(maxWidth: 640, alignment: .leading)
       .padding(20)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
     .onChange(of: appearsActive, initial: true) { opensAtLogin = LoginItem.isEnabled }
     .confirmationDialog(
