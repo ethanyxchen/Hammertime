@@ -32,7 +32,7 @@ struct SettingsView: View {
             }
           }
         }
-        SettingsSection("Daily merged PR targets") {
+        SettingsSection("Targets") {
           LabeledContent("Use targets") {
             Toggle(
               "Use targets",
@@ -49,7 +49,7 @@ struct SettingsView: View {
             }
           }
         }
-        SettingsSection("GitHub connections") {
+        SettingsSection("GitHub accounts") {
           ForEach(model.connections) { connection in
             HStack(alignment: .top, spacing: 12) {
               Image(systemName: "person.crop.circle.fill")
@@ -77,16 +77,11 @@ struct SettingsView: View {
             .help("Add GitHub Connection…")
             .disabled(model.isPreview)
         }
-        SettingsSection("Merge celebration") {
-          LabeledContent("Sound") {
-            Toggle(
-              "Sound",
-              isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
-            )
-            .labelsHidden().toggleStyle(.switch).controlSize(.small)
-          }
+        SettingsSection("Activity") {
+          LabeledContent("Refresh", value: "Every minute while the app is running")
+          LabeledContent("History", value: "Merged PRs from the last 90 days")
         }
-        SettingsSection("Login") {
+        SettingsSection("General") {
           LabeledContent("Open at login") {
             Toggle(
               "Open at login",
@@ -100,6 +95,13 @@ struct SettingsView: View {
             .labelsHidden().toggleStyle(.switch).controlSize(.small)
             .disabled(model.isPreview)
           }
+          LabeledContent("Merge celebration sound") {
+            Toggle(
+              "Merge celebration sound",
+              isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
+            )
+            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+          }
         }
         SettingsSection("Software update") {
           LabeledContent("Check automatically") {
@@ -112,10 +114,6 @@ struct SettingsView: View {
             Button("Check for Updates…") { softwareUpdate.check() }
               .disabled(!softwareUpdate.canCheck || model.isPreview)
           }
-        }
-        SettingsSection("Updates") {
-          LabeledContent("Refresh", value: "Every minute while the app is running")
-          LabeledContent("History", value: "Merged PRs from the last 90 days")
         }
       }
       .padding(20)

@@ -9,7 +9,7 @@ enum Destination: Hashable {
     switch self {
     case .activity(let filter): filter.title
     case .repositories: "Repositories"
-    case .settings: "Targets & Accounts"
+    case .settings: "Settings"
     }
   }
 
@@ -534,8 +534,8 @@ private struct SidebarFooter: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .help("Targets & Accounts")
-    .accessibilityLabel("Targets & Accounts")
+    .help("Settings")
+    .accessibilityLabel("Settings")
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .background(Palette.sidebar)
   }
