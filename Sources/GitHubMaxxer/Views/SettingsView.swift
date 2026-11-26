@@ -59,6 +59,7 @@ struct SettingsPanel: View {
         }
       }
       .frame(width: 760, height: 540)
+      .accessibilityAddTraits(.isModal)
       .background(.background, in: .rect(cornerRadius: 14))
       .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
       .shadow(color: .black.opacity(0.2), radius: 30, y: 12)

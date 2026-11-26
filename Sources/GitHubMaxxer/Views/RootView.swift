@@ -43,9 +43,11 @@ extension FocusedValues {
 
 private struct Findable: ViewModifier {
   @FocusState private var isFocused: Bool
+  @Environment(\.isEnabled) private var isEnabled
 
   func body(content: Content) -> some View {
-    content.searchFocused($isFocused).focusedSceneValue(\.searchFocus, $isFocused)
+    content.searchFocused($isFocused)
+      .focusedSceneValue(\.searchFocus, isEnabled ? $isFocused : nil)
   }
 }
 
@@ -219,6 +221,8 @@ struct RootView: View {
           .toolbar(removing: .title)
       } else {
         navigation
+          .disabled(model.settingsPane != nil)
+          .accessibilityHidden(model.settingsPane != nil)
       }
     }
     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -274,7 +278,13 @@ struct RootView: View {
       }
     }
     .onChange(of: appearsActive, initial: true) { _, active in model.setFocused(active) }
-    .onDisappear { model.setFocused(false) }
+    .onChange(of: model.isWelcoming) { _, welcoming in
+      if welcoming { model.settingsPane = nil }
+    }
+    .onDisappear {
+      model.setFocused(false)
+      model.settingsPane = nil
+    }
     .frame(minWidth: Self.minimumWidth, minHeight: 680)
   }
 
@@ -340,7 +350,7 @@ struct RootView: View {
     .searchable(text: $search, placement: .toolbar, prompt: searchPrompt)
     .findable()
     .onChange(of: model.destination) { search = "" }
-    .focusedSceneValue(\.destination, Bindable(model).destination)
+    .focusedSceneValue(\.destination, model.settingsPane == nil ? Bindable(model).destination : nil)
     .onModifierKeysChanged(mask: .command) { _, keys in showsShortcuts = keys.contains(.command) }
   }
 
