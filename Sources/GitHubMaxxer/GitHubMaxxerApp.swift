@@ -95,7 +95,7 @@ private struct SettingsButton: View {
 
   var body: some View {
     Button("Settings…") {
-      model.destination = .settings
+      model.settingsPane = .targets
       openWindow(id: "main")
       NSApplication.shared.activate(ignoringOtherApps: true)
     }
