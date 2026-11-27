@@ -5,7 +5,7 @@ struct RepositoriesView: View {
   @Environment(AppModel.self) private var model
   let search: String
   @State private var selectedConnection: UUID?
-  @State private var picking: [String: RepositoryScope] = [:]
+  @State private var picking: [String: Set<String>] = [:]
 
   private var account: AccountConnection? {
     model.connections.first { $0.id == selectedConnection } ?? model.connections.first
@@ -130,8 +130,9 @@ struct RepositoriesView: View {
         get: { selection },
         set: { coverage in
           model.setCoverage(coverage, owner: owner, for: account.id)
+          let scope = model.connections.first { $0.id == account.id }?.scope
           picking[pickingKey(owner, account: account)] =
-            coverage == .some ? model.connections.first { $0.id == account.id }?.scope : nil
+            coverage == .some ? scope.map { checked(owner, in: $0, account: account) } : nil
         })
     ) {
       ForEach(options, id: \.self) { coverage in Text(coverage.title).tag(coverage) }
@@ -141,8 +142,15 @@ struct RepositoriesView: View {
 
   private func coverage(of owner: String, account: AccountConnection) -> RepositoryScope.Coverage {
     let coverage = account.scope.coverage(of: owner, among: account.snapshot.visibleRepositories)
-    return coverage == .none && picking[pickingKey(owner, account: account)] == account.scope
+    return coverage == .none && picking[pickingKey(owner, account: account)] == []
       ? .some : coverage
+  }
+
+  private func checked(_ owner: String, in scope: RepositoryScope, account: AccountConnection)
+    -> Set<String>
+  {
+    Set(account.snapshot.visibleRepositories.owned(by: owner).map(\.id))
+      .intersection(scope.repositories)
   }
 
   private func pickingKey(_ owner: String, account: AccountConnection) -> String {
@@ -203,7 +211,8 @@ struct RepositoriesView: View {
         scope.repositories.remove(repository.id)
       }
       model.setScope(scope, for: account.id)
-      picking[pickingKey(repository.owner, account: account)] = scope
+      picking[pickingKey(repository.owner, account: account)] =
+        checked(repository.owner, in: scope, account: account)
     }
   }
 }

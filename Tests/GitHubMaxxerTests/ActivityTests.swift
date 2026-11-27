@@ -223,6 +223,12 @@ struct ActivityTests {
     #expect(some.covering("acme", .none, among: available) == none)
   }
 
+  @Test func anEmptyScopeCountsNothing() {
+    let repository = Repository(id: "1", nameWithOwner: "acme/app", isPrivate: true)
+    #expect(!RepositoryScope().includes(repository))
+    #expect(!RepositoryScope().counts("acme"))
+  }
+
   @Test func repositorySelectionSurvivesRename() {
     let scope = RepositoryScope(repositories: ["stable-id"])
     #expect(
