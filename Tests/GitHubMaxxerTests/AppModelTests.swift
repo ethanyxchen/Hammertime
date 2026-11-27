@@ -378,6 +378,61 @@ struct AppModelTests {
     #expect(older.personal.goals == Goals(daily: 2))
   }
 
+  @Test func turningSyncOffLeavesTheGistAloneUntilItIsBackOn() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, _, token) = try syncingModel(in: directory)
+    model.setDailyGoal(4, for: .personal)
+    await model.syncSettings()
+
+    model.setSyncsSettings(false)
+    model.setDailyGoal(6, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 4))
+    let reloaded = AppModel(
+      stateURL: directory.appending(path: "state.json"), credentials: TestCredentials())
+    #expect(!reloaded.syncsSettings)
+    #expect(reloaded.goals(for: .personal) == Goals(daily: 6))
+
+    model.setSyncsSettings(true)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 6))
+  }
+
+  @Test func syncMergesEachSettingChangedOnEitherMac() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, _, token) = try syncingModel(in: directory)
+    model.renameOrganization("northstar", to: "North")
+    model.setDailyGoal(4, for: .personal)
+    await model.syncSettings()
+
+    model.setSyncsSettings(false)
+    model.setDailyGoal(6, for: .personal)
+    model.setShowsLineChanges(false)
+    var elsewhere = try #require(GistProtocol.settings(for: token))
+    elsewhere.workspaces.personal.goals = Goals(daily: 3)
+    elsewhere.workspaces.personal.colour = .plum
+    elsewhere.workspaces.countsOnly = true
+    elsewhere.organizations.names = [:]
+    GistProtocol.publish(elsewhere, for: token)
+    model.setSyncsSettings(true)
+    await model.syncSettings()
+
+    let synced = try #require(GistProtocol.settings(for: token))
+    #expect(synced.workspaces.personal == Workspace(goals: Goals(daily: 6), colour: .plum))
+    #expect(synced.workspaces.countsOnly)
+    #expect(!synced.workspaces.showsLineChanges)
+    #expect(synced.organizations.names.isEmpty)
+    #expect(model.goals(for: .personal) == Goals(daily: 6))
+    #expect(model.colour(for: .personal) == .plum)
+    #expect(model.countsOnly)
+    #expect(!model.showsLineChanges)
+    #expect(model.displayName(for: "northstar") == "northstar")
+  }
+
   @Test func syncCreatesTheGistFromLocalSettingsAndPushesChanges() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -1185,7 +1240,6 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
   private static func summary(_ gist: (key: String, value: Stored)) -> [String: Any] {
     [
       "id": gist.key, "description": gist.value.description,
-      "updated_at": timestamp(gist.value.version),
       "files": gist.value.content == nil
         ? [:] : [SyncedSettings.file: ["filename": SyncedSettings.file]],
     ]
@@ -1194,13 +1248,8 @@ private final class GistProtocol: URLProtocol, @unchecked Sendable {
   private static func json(_ id: String) -> [String: Any] {
     let gist = stored[id]!
     return [
-      "id": id, "updated_at": timestamp(gist.version),
+      "id": id,
       "files": gist.content.map { [SyncedSettings.file: ["content": $0]] } ?? [:],
     ]
-  }
-
-  private static func timestamp(_ version: Int) -> String {
-    ISO8601DateFormatter().string(
-      from: Date(timeIntervalSince1970: 1_700_000_000 + Double(version)))
   }
 }
