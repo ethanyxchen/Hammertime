@@ -754,7 +754,7 @@ final class AppModel {
     let scopes = remoteSettings?.scopes ?? [:]
     do {
       let gist = try await settingsGist(client, known: known, keeping: scopes)
-      guard connections.first?.id == primary.id else { return }
+      guard syncsSettings, connections.first?.id == primary.id else { return }
       let settings = try? SyncedSettings(gist)
       let isNewer = known.map { $0.id != gist.id || gist.updatedAt > $0.updatedAt } ?? true
       if let settings, isNewer { apply(settings) }
