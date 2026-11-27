@@ -24,18 +24,8 @@ final class MergeBanner {
   }
 
   private func makePanel(frame: CGRect, canvasOrigin: CGPoint) -> NSPanel {
-    let panel = NSPanel(
-      contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
-      defer: false)
-    panel.level = NSWindow.Level(NSWindow.Level.screenSaver.rawValue + 1)
-    panel.collectionBehavior = [
-      .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
-    ]
-    panel.isOpaque = false
-    panel.backgroundColor = .clear
-    panel.hasShadow = false
-    panel.hidesOnDeactivate = false
-    panel.canHide = false
+    let panel = NSPanel.overlay(
+      frame: frame, level: NSWindow.Level(NSWindow.Level.screenSaver.rawValue + 1))
     let canvas = NSHostingView(
       rootView: BannerStage(dismiss: model.releaseBanner).environment(model)
         .frame(width: Self.canvas.width, height: Self.canvas.height))
@@ -224,5 +214,23 @@ private struct BannerCard: View {
       return Set(pulls.map(\.repository.name)).sorted().joined(separator: ", ")
     }
     return "#\(String(pulls[0].number)) · \(pulls[0].repository.name)"
+  }
+}
+
+extension NSPanel {
+  static func overlay(frame: CGRect, level: NSWindow.Level) -> NSPanel {
+    let panel = NSPanel(
+      contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+      defer: false)
+    panel.level = level
+    panel.collectionBehavior = [
+      .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
+    ]
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.hasShadow = false
+    panel.hidesOnDeactivate = false
+    panel.canHide = false
+    return panel
   }
 }

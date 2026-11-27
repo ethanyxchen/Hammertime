@@ -269,6 +269,16 @@ final class AppModel {
 
   var banner: Landing? { held.flatMap { pullRequests(in: $0).isEmpty ? nil : $0 } }
 
+  static let smashingLines =
+    ProcessInfo.processInfo.arguments.contains("--smash-every-merge") ? 0 : 100_000
+
+  var smash: Date? {
+    [landing, held].compactMap { $0 }.first { landing in
+      landing.slam != nil
+        && pullRequests(in: landing).contains { $0.changedLines > Self.smashingLines }
+    }?.slam
+  }
+
   var isWelcoming: Bool {
     connections.isEmpty
       || landing.map { $0.pullRequests.isEmpty && $0.slam != nil && $0.reveal > now } == true
