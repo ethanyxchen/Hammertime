@@ -2,11 +2,11 @@ import GitHubMaxxerCore
 import SwiftUI
 
 enum SettingsPane: CaseIterable {
-  case targets, accounts, general
+  case tracking, accounts, general
 
   var title: String {
     switch self {
-    case .targets: "Targets"
+    case .tracking: "Tracking"
     case .accounts: "Accounts"
     case .general: "General"
     }
@@ -14,7 +14,7 @@ enum SettingsPane: CaseIterable {
 
   var symbol: String {
     switch self {
-    case .targets: "target"
+    case .tracking: "chart.bar.xaxis"
     case .accounts: "person.crop.circle"
     case .general: "gearshape"
     }
@@ -109,7 +109,7 @@ private struct SettingsView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 24) {
       switch pane {
-      case .targets: targets
+      case .tracking: tracking
       case .accounts: accounts
       case .general: general
       }
@@ -143,7 +143,24 @@ private struct SettingsView: View {
     }
   }
 
-  @ViewBuilder private var targets: some View {
+  @ViewBuilder private var tracking: some View {
+    SettingsSection("Display") {
+      LabeledContent("Show lines changed") {
+        Toggle(
+          "Show lines changed",
+          isOn: Binding(
+            get: { model.showsLineChanges }, set: { model.setShowsLineChanges($0) })
+        )
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+      }
+      LabeledContent("Merge celebration sound") {
+        Toggle(
+          "Merge celebration sound",
+          isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
+        )
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+      }
+    }
     SettingsSection("Targets") {
       LabeledContent("Use targets") {
         Toggle(
@@ -238,21 +255,6 @@ private struct SettingsView: View {
         )
         .labelsHidden().toggleStyle(.switch).controlSize(.small)
         .disabled(model.isPreview)
-      }
-      LabeledContent("Show lines changed") {
-        Toggle(
-          "Show lines changed",
-          isOn: Binding(
-            get: { model.showsLineChanges }, set: { model.setShowsLineChanges($0) })
-        )
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
-      }
-      LabeledContent("Merge celebration sound") {
-        Toggle(
-          "Merge celebration sound",
-          isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
-        )
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
       }
     }
     SettingsSection("Software update") {
