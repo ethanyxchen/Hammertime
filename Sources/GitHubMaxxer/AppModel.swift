@@ -100,6 +100,7 @@ struct Workspaces: Codable, Equatable {
   var personal = Workspace()
   var organizations: [String: Workspace] = [:]
   var countsOnly = false
+  var showsLineChanges = true
 
   subscript(filter: ActivityFilter) -> Workspace? {
     get {
@@ -133,6 +134,8 @@ extension Workspaces {
     personal = try container.decode(Workspace.self, forKey: .personal)
     organizations = try container.decode([String: Workspace].self, forKey: .organizations)
     countsOnly = try container.decodeIfPresent(Bool.self, forKey: .countsOnly) ?? false
+    showsLineChanges =
+      try container.decodeIfPresent(Bool.self, forKey: .showsLineChanges) ?? true
   }
 }
 
@@ -323,6 +326,13 @@ final class AppModel {
 
   func setCountsOnly(_ countsOnly: Bool) {
     workspaceSettings.countsOnly = countsOnly
+    persist()
+  }
+
+  var showsLineChanges: Bool { workspaceSettings.showsLineChanges }
+
+  func setShowsLineChanges(_ showsLineChanges: Bool) {
+    workspaceSettings.showsLineChanges = showsLineChanges
     persist()
   }
 
@@ -531,8 +541,9 @@ final class AppModel {
         for (repository, icon) in fetched { icons[repository] = icon.flatMap(NSImage.init(data:)) }
         if let hidden { hiddenOrganizations[id] = hidden }
         let known = Set(merged.map(\.id))
+        let hasFetched = connections[index].snapshot.hasFetched
         connections[index].snapshot.record(pulls, mergedIn: interval)
-        land(Set(merged.map(\.id)).subtracting(known), since: started)
+        if hasFetched { land(Set(merged.map(\.id)).subtracting(known), since: started) }
         connectionErrors[id] = nil
       case .failure(is CancellationError): return
       case .failure(let error): connectionErrors[id] = error

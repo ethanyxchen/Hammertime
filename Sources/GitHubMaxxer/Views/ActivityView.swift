@@ -223,7 +223,9 @@ struct ActivityView: View {
         ForEach(days, id: \.day) { entry in
           Section {
             ForEach(entry.pulls) { pull in
-              PullRequestRow(pull: pull, landing: landing(pull)).padding(.vertical, 9)
+              PullRequestRow(
+                pull: pull, landing: landing(pull), showsLineChanges: model.showsLineChanges
+              ).padding(.vertical, 9)
                 .transition(
                   .asymmetric(
                     insertion: .identity,
@@ -502,6 +504,7 @@ private func periodDateLabel(_ period: GoalPeriod, now: Date) -> String {
 private struct PullRequestRow: View {
   let pull: MergedPullRequest
   let landing: Landing?
+  let showsLineChanges: Bool
 
   var body: some View {
     Link(destination: pull.url) {
@@ -548,6 +551,9 @@ private struct PullRequestRow: View {
       Spacer(minLength: 12)
       HStack(spacing: 12) {
         if let landing { MergedStamp(landing: landing) }
+        if showsLineChanges {
+          LineChanges(additions: pull.additions, deletions: pull.deletions)
+        }
         Text(pull.mergedAt, format: .dateTime.hour().minute())
           .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.secondary)
           .help(pull.mergedAt.formatted(date: .complete, time: .shortened))

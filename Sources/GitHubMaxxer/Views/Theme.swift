@@ -12,6 +12,8 @@ enum Palette {
   static let reached = dynamic(light: 0x6E9150, dark: 0x9BB87A)
   static let over = dynamic(light: 0x435E30, dark: 0xC4DCA2)
   static let merged = dynamic(light: 0x8250DF, dark: 0xA371F7)
+  static let added = dynamic(light: 0x435E30, dark: 0x9BB87A)
+  static let deleted = dynamic(light: 0x9A4A28, dark: 0xE08A60)
 
   static let heat = [empty, reached.opacity(0.35), reached.opacity(0.65), reached, over]
 
@@ -170,6 +172,43 @@ struct SegmentMeter: View {
       if position < end { return share.color }
     }
     return Palette.empty
+  }
+}
+
+struct LineChanges: View {
+  let additions: Int
+  let deletions: Int
+  var showsBar = true
+
+  private static let blocks = 5
+
+  var body: some View {
+    HStack(spacing: 10) {
+      HStack(spacing: 6) {
+        Text("+\(additions.formatted())").foregroundStyle(Palette.added)
+        Text("−\(deletions.formatted())").foregroundStyle(Palette.deleted)
+      }
+      if showsBar {
+        HStack(spacing: 2) {
+          ForEach(0..<Self.blocks, id: \.self) { index in
+            RoundedRectangle(cornerRadius: 1).fill(fill(index)).frame(width: 8, height: 8)
+          }
+        }
+      }
+    }
+    .font(.system(size: 11, weight: .medium, design: .monospaced))
+    .fixedSize()
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("\(additions) lines added, \(deletions) removed")
+  }
+
+  func fill(_ index: Int) -> Color {
+    let total = additions + deletions
+    guard total > 0 else { return Palette.empty }
+    let filled = min(Self.blocks, Int((log10(Double(total) + 1) * 1.5).rounded(.up)))
+    let added = Int((Double(filled * additions) / Double(total)).rounded())
+    if index < added { return Palette.added }
+    return index < filled ? Palette.deleted : Palette.empty
   }
 }
 

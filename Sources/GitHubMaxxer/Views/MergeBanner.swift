@@ -188,8 +188,15 @@ private struct BannerCard: View {
       .frame(width: 34, height: 34)
       VStack(alignment: .leading, spacing: 3) {
         Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.ink)
-        Text(detail).font(.system(size: 11, design: .monospaced))
-          .foregroundStyle(Palette.secondary)
+        HStack(spacing: 8) {
+          Text(detail).font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(Palette.secondary)
+          if model.showsLineChanges {
+            LineChanges(
+              additions: pulls.map(\.additions).reduce(0, +),
+              deletions: pulls.map(\.deletions).reduce(0, +), showsBar: false)
+          }
+        }
       }
       .lineLimit(1)
       Spacer(minLength: 8)

@@ -87,6 +87,7 @@ struct GitHubClientTests {
     let pulls = try await client.mergedPullRequests(
       from: fixedNow.addingTimeInterval(-3600), through: fixedNow)
     #expect(pulls.map(\.id) == ["p1", "p2"])
+    #expect(pulls.allSatisfy { $0.additions == 186 && $0.deletions == 42 })
     #expect(pulls.allSatisfy { $0.repository.ownerKind == .organization })
   }
 
@@ -173,7 +174,7 @@ private func repositoryJSON(_ id: String) -> String {
 }
 
 private func pullJSON(_ id: String) -> String {
-  "{\"id\":\"\(id)\",\"title\":\"Improve search\",\"number\":42,\"url\":\"https://github.com/acme/r1/pull/42\",\"mergedAt\":\"2026-09-30T10:00:00Z\",\"repository\":\(repositoryJSON("r1"))}"
+  "{\"id\":\"\(id)\",\"title\":\"Improve search\",\"number\":42,\"url\":\"https://github.com/acme/r1/pull/42\",\"mergedAt\":\"2026-09-30T10:00:00Z\",\"additions\":186,\"deletions\":42,\"repository\":\(repositoryJSON("r1"))}"
 }
 
 private func searchResponse(count: Int, nodes: [String], next: String? = nil) -> StubResponse {

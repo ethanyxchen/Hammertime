@@ -52,16 +52,21 @@ public struct MergedPullRequest: Codable, Sendable, Hashable, Identifiable {
   public let number: Int
   public let url: URL
   public let mergedAt: Date
+  public let additions: Int
+  public let deletions: Int
   public let repository: Repository
 
   public init(
-    id: String, title: String, number: Int, url: URL, mergedAt: Date, repository: Repository
+    id: String, title: String, number: Int, url: URL, mergedAt: Date, additions: Int,
+    deletions: Int, repository: Repository
   ) {
     self.id = id
     self.title = title
     self.number = number
     self.url = url
     self.mergedAt = mergedAt
+    self.additions = additions
+    self.deletions = deletions
     self.repository = repository
   }
 }
@@ -78,6 +83,21 @@ public struct GitHubSnapshot: Codable, Sendable {
     self.pullRequests = pullRequests
     self.fetchedAt = fetchedAt
   }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    repositories = try container.decode([Repository].self, forKey: .repositories)
+    guard let pulls = try? container.decode([MergedPullRequest].self, forKey: .pullRequests)
+    else {
+      pullRequests = []
+      fetchedAt = .distantPast
+      return
+    }
+    pullRequests = pulls
+    fetchedAt = try container.decode(Date.self, forKey: .fetchedAt)
+  }
+
+  public var hasFetched: Bool { fetchedAt > .distantPast }
 
   public var visibleRepositories: [Repository] {
     var seen = Set<String>()
