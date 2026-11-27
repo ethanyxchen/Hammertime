@@ -15,7 +15,7 @@ struct AppModelTests {
     let sample = PreviewData.connections(now: .now)[0]
     let connection = AccountConnection(
       id: UUID(), label: "Work", profile: sample.profile,
-      scope: RepositoryScope(allRepositories: false, owners: ["northstar"]),
+      scope: RepositoryScope(owners: ["northstar"]),
       snapshot: sample.snapshot)
     try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
     let store = TestCredentials()
@@ -54,7 +54,7 @@ struct AppModelTests {
     #expect(model.connections[0].label == model.connections[0].profile.login)
     #expect(
       model.connections[0].scope
-        == RepositoryScope(allRepositories: false, owners: ["renamed-user"]))
+        == RepositoryScope(owners: ["renamed-user"]))
     let landing = try #require(model.landing)
     #expect(landing.pullRequests.isEmpty)
     #expect(model.isWelcoming == (landing.slam != nil))
@@ -90,7 +90,8 @@ struct AppModelTests {
       Repository(id: $0, nameWithOwner: $0, isPrivate: false, ownerKind: .organization)
     }
     let connection = AccountConnection(
-      id: UUID(), label: "Work", profile: sample.profile, scope: RepositoryScope(),
+      id: UUID(), label: "Work", profile: sample.profile,
+      scope: RepositoryScope(owners: Set(repositories.map(\.owner))),
       snapshot: GitHubSnapshot(
         repositories: [], pullRequests: repositories.map(mergedPullRequest), fetchedAt: .now))
     try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
@@ -122,7 +123,7 @@ struct AppModelTests {
     let connection = AccountConnection(
       id: UUID(), label: "Work", profile: sample.profile,
       scope: RepositoryScope(
-        allRepositories: false, owners: ["acme", "beta", sample.profile.login]),
+        owners: ["acme", "beta", sample.profile.login]),
       snapshot: GitHubSnapshot(
         repositories: [
           Repository(
@@ -190,7 +191,8 @@ struct AppModelTests {
     }
     let pulls = repositories.map(mergedPullRequest)
     let connection = AccountConnection(
-      id: UUID(), label: "Work", profile: sample.profile, scope: RepositoryScope(),
+      id: UUID(), label: "Work", profile: sample.profile,
+      scope: RepositoryScope(owners: Set(repositories.map(\.owner))),
       snapshot: GitHubSnapshot(repositories: [], pullRequests: pulls, fetchedAt: .now))
     try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
     let model = AppModel(stateURL: url, credentials: TestCredentials())
@@ -227,7 +229,7 @@ struct AppModelTests {
     }
     let connection = AccountConnection(
       id: UUID(), label: "Work", profile: sample.profile,
-      scope: RepositoryScope(allRepositories: false, owners: ["acme"]),
+      scope: RepositoryScope(owners: ["acme"]),
       snapshot: GitHubSnapshot(
         repositories: repositories, pullRequests: repositories.map(mergedPullRequest),
         fetchedAt: .now))
@@ -266,7 +268,7 @@ struct AppModelTests {
     let connection = AccountConnection(
       id: UUID(), label: "Work", profile: sample.profile,
       scope: RepositoryScope(
-        allRepositories: false, owners: ["acme", "quiet", "friend", sample.profile.login]),
+        owners: ["acme", "quiet", "friend", sample.profile.login]),
       snapshot: GitHubSnapshot(
         repositories: repositories + people,
         pullRequests: [mergedPullRequest(in: repositories[0])], fetchedAt: .now))
@@ -288,7 +290,8 @@ struct AppModelTests {
       Repository(id: $0, nameWithOwner: $0, isPrivate: false, ownerKind: .organization)
     }
     let connection = AccountConnection(
-      id: UUID(), label: "Work", profile: sample.profile, scope: RepositoryScope(),
+      id: UUID(), label: "Work", profile: sample.profile,
+      scope: RepositoryScope(owners: Set(repositories.map(\.owner))),
       snapshot: GitHubSnapshot(
         repositories: [], pullRequests: repositories.map(mergedPullRequest), fetchedAt: .now))
     let saved = OrganizationPreferences(
@@ -322,7 +325,7 @@ struct AppModelTests {
       id: "acme/app", nameWithOwner: "acme/app", isPrivate: false, ownerKind: .organization)
     let connection = AccountConnection(
       id: UUID(), label: "Work", profile: sample.profile,
-      scope: RepositoryScope(allRepositories: false),
+      scope: RepositoryScope(),
       snapshot: GitHubSnapshot(repositories: [repository], pullRequests: [], fetchedAt: .now))
     let saved = OrganizationPreferences(
       pinned: ["acme", "gone"], names: ["acme": "Acme", "gone": "Gone"])
@@ -428,8 +431,8 @@ struct AppModelTests {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let (model, connection, token) = try syncingModel(in: directory)
-    let scope = RepositoryScope(allRepositories: false, owners: ["acme"])
-    let elsewhere = RepositoryScope(allRepositories: false, owners: ["elsewhere"])
+    let scope = RepositoryScope(owners: ["acme"])
+    let elsewhere = RepositoryScope(owners: ["elsewhere"])
     var remote = SyncedSettings(
       workspaces: Workspaces(
         personal: Workspace(goals: Goals(daily: 4), colour: .plum),
@@ -485,7 +488,7 @@ struct AppModelTests {
       path: "state.json")
     let model = AppModel(preview: true, stateURL: url, credentials: TestCredentials())
     model.setDailyGoal(3, for: .personal)
-    model.setScope(RepositoryScope(allRepositories: false), for: model.connections[0].id)
+    model.setScope(RepositoryScope(), for: model.connections[0].id)
     #expect(!FileManager.default.fileExists(atPath: url.path))
   }
 
@@ -579,13 +582,13 @@ struct AppModelTests {
 
   @Test func onlyCountedOrganizationsHiddenBySingleSignOnNeedAttention() async throws {
     let (model, id) = try refreshingModel(
-      SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false, owners: ["acme"]))
+      SingleSignOnProtocol.self, scope: RepositoryScope(owners: ["acme"]))
     await model.refresh()
     #expect(model.hiddenOrganizations(of: id) == ["Acme", "beta"])
     #expect(model.notices.map(\.title) == ["Hammertime can't see Acme"])
 
     let (untracked, _) = try refreshingModel(
-      SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false))
+      SingleSignOnProtocol.self, scope: RepositoryScope())
     await untracked.refresh()
     #expect(untracked.notices.isEmpty)
   }
@@ -614,7 +617,7 @@ struct AppModelTests {
   }
 
   private func refreshingModel(
-    _ protocolClass: AnyClass, scope: RepositoryScope = RepositoryScope()
+    _ protocolClass: AnyClass, scope: RepositoryScope = RepositoryScope(owners: ["acme", "beta"])
   )
     throws -> (AppModel, UUID)
   {
@@ -692,7 +695,7 @@ struct AppModelTests {
         id: UUID(), label: name,
         profile: GitHubProfile(
           id: name, login: name, name: nil, avatarUrl: sample.profile.avatarUrl),
-        scope: RepositoryScope(), snapshot: sample.snapshot)
+        scope: sample.scope, snapshot: sample.snapshot)
     }
     try JSONEncoder().encode(FixtureState(connections: connections)).write(
       to: url)
@@ -1053,16 +1056,18 @@ private final class MergedProtocol: URLProtocol, @unchecked Sendable {
     let token = request.value(forHTTPHeaderField: "Authorization")?.split(separator: " ").last ?? ""
     let body =
       switch request.url!.path() {
-      case "/repos/acme/app/git/trees/HEAD":
+      case "/repos/alexmorgan/app/git/trees/HEAD":
         Data(#"{"tree":[{"path":"Resources/AppIcon.icns","type":"blob","size":1}]}"#.utf8)
-      case "/repos/acme/app/contents/Resources/AppIcon.icns":
-        Data(#"{"download_url":"https://media.githubusercontent.com/acme/app/AppIcon.icns"}"#.utf8)
-      case "/acme/app/AppIcon.icns": Self.icon
+      case "/repos/alexmorgan/app/contents/Resources/AppIcon.icns":
+        Data(
+          #"{"download_url":"https://media.githubusercontent.com/alexmorgan/app/AppIcon.icns"}"#
+            .utf8)
+      case "/alexmorgan/app/AppIcon.icns": Self.icon
       default:
         Data(
           ((try? requestBody(request)["query"] as? String)?.contains("search(query") == true
             ? """
-            {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/acme/app/pull/1","mergedAt":"\(mergedAt)","additions":\(token.hasPrefix("huge") ? 100_000 : 5),"deletions":1,"repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
+            {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/alexmorgan/app/pull/1","mergedAt":"\(mergedAt)","additions":\(token.hasPrefix("huge") ? 100_000 : 5),"deletions":1,"repository":{"id":"r1","nameWithOwner":"alexmorgan/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
             """
             : """
             {"data":{"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}

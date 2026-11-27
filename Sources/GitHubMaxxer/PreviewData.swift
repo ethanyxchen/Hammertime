@@ -38,7 +38,7 @@ enum PreviewData {
     return [
       AccountConnection(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, label: "Alex Morgan",
-        profile: profile, scope: RepositoryScope(),
+        profile: profile, scope: RepositoryScope(owners: Set(repositories.map(\.owner))),
         snapshot: snapshot
       )
     ]

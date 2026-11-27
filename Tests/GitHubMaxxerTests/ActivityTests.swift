@@ -36,25 +36,14 @@ struct ActivityTests {
   @Test func newAccountsCountOwnersTheyMergedIntoAndThemselves() {
     let scope = RepositoryScope.active(
       in: [pull("work", "2026-09-29T12:00:00Z", repo: "acme/app")], login: "me")
-    #expect(scope == RepositoryScope(allRepositories: false, owners: ["acme", "me"]))
-  }
-
-  @Test func stopCountingAnOwnerWhileTrackingEverythingKeepsTheOthers() {
-    let available = ["acme/app", "beta/app", "beta/tools", "me/dotfiles"].map {
-      Repository(id: $0, nameWithOwner: $0, isPrivate: false)
-    }
-    let scope = RepositoryScope().counting("BETA", false, among: available)
-    #expect(!scope.allRepositories)
-    #expect(scope.owners == ["acme", "me"])
-    #expect(RepositoryScope().counting("beta", true, among: available) == RepositoryScope())
-    #expect(scope.counting("beta", true, among: available).owners == ["acme", "beta", "me"])
+    #expect(scope == RepositoryScope(owners: ["acme", "me"]))
   }
 
   @Test func stopCountingAnOwnerDropsItsIndividuallyTrackedRepositories() {
     let available = ["acme/app", "beta/app"].map {
       Repository(id: $0, nameWithOwner: $0, isPrivate: false)
     }
-    let scope = RepositoryScope(allRepositories: false, repositories: ["acme/app", "beta/app"])
+    let scope = RepositoryScope(repositories: ["acme/app", "beta/app"])
     #expect(scope.counting("beta", false, among: available).repositories == ["acme/app"])
   }
 
@@ -179,9 +168,9 @@ struct ActivityTests {
 
   @Test func deduplicatesOverlappingConnectionsAfterFiltering() {
     let shared = pull("shared", "2026-09-30T10:00:00Z")
-    let selected = RepositoryScope(allRepositories: false, owners: ["ACME"])
+    let selected = RepositoryScope(owners: ["ACME"])
     let pulls = Activity.mergedPullRequests(from: [
-      ScopedActivity(pullRequests: [shared], scope: RepositoryScope(allRepositories: false)),
+      ScopedActivity(pullRequests: [shared], scope: RepositoryScope()),
       ScopedActivity(pullRequests: [shared, shared], scope: selected),
     ])
     #expect(pulls.map(\.id) == ["shared"])
@@ -208,7 +197,7 @@ struct ActivityTests {
 
   @Test func selectedOwnersIncludeNewRepositories() {
     let scope = RepositoryScope(
-      allRepositories: false, owners: ["acme"], repositories: ["tools"])
+      owners: ["acme"], repositories: ["tools"])
     #expect(scope.includes(Repository(id: "new", nameWithOwner: "acme/new", isPrivate: true)))
     #expect(scope.includes(Repository(id: "tools", nameWithOwner: "other/tools", isPrivate: false)))
     #expect(!scope.includes(Repository(id: "no", nameWithOwner: "other/app", isPrivate: false)))
@@ -220,7 +209,7 @@ struct ActivityTests {
       Repository(id: "web", nameWithOwner: "acme/web", isPrivate: false),
       Repository(id: "mine", nameWithOwner: "me/mine", isPrivate: false),
     ]
-    let none = RepositoryScope(allRepositories: false, owners: ["me"])
+    let none = RepositoryScope(owners: ["me"])
     #expect(none.coverage(of: "acme", among: available) == .none)
     #expect(none.covering("acme", .some, among: available) == none)
 
@@ -229,23 +218,19 @@ struct ActivityTests {
 
     let some = all.covering("acme", .some, among: available)
     #expect(
-      some == RepositoryScope(allRepositories: false, owners: ["me"], repositories: ["app", "web"]))
+      some == RepositoryScope(owners: ["me"], repositories: ["app", "web"]))
     #expect(some.coverage(of: "acme", among: available) == .some)
     #expect(some.covering("acme", .none, among: available) == none)
-
-    let everything = RepositoryScope().covering("acme", .some, among: available)
-    #expect(everything.owners == ["me"])
-    #expect(everything.repositories == ["app", "web"])
   }
 
-  @Test func allRepositoriesAndEmptySelectionDiffer() {
-    let repo = Repository(id: "1", nameWithOwner: "acme/app", isPrivate: true)
-    #expect(RepositoryScope().includes(repo))
-    #expect(!RepositoryScope(allRepositories: false).includes(repo))
+  @Test func anEmptyScopeCountsNothing() {
+    let repository = Repository(id: "1", nameWithOwner: "acme/app", isPrivate: true)
+    #expect(!RepositoryScope().includes(repository))
+    #expect(!RepositoryScope().counts("acme"))
   }
 
   @Test func repositorySelectionSurvivesRename() {
-    let scope = RepositoryScope(allRepositories: false, repositories: ["stable-id"])
+    let scope = RepositoryScope(repositories: ["stable-id"])
     #expect(
       scope.includes(
         Repository(id: "stable-id", nameWithOwner: "new-owner/new-name", isPrivate: true)))
