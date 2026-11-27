@@ -159,10 +159,72 @@ extension SyncedSettings {
     self = try JSONDecoder().decode(SyncedSettings.self, from: Data(gist.content.utf8))
   }
 
+  func merging(_ remote: SyncedSettings, since base: SyncedSettings) -> SyncedSettings {
+    SyncedSettings(
+      workspaces: workspaces.merging(remote.workspaces, since: base.workspaces),
+      organizations: organizations.merging(remote.organizations, since: base.organizations),
+      scopes: scopes.merging(remote.scopes, since: base.scopes))
+  }
+
   func content() throws -> String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     return String(decoding: try encoder.encode(self), as: UTF8.self)
+  }
+}
+
+private protocol Mergeable: Equatable {
+  func merging(_ remote: Self, since base: Self) -> Self
+}
+
+extension Mergeable {
+  func merging(_ remote: Self, since base: Self) -> Self { self == base ? remote : self }
+}
+
+extension Bool: Mergeable {}
+extension String: Mergeable {}
+extension Array: Mergeable where Element: Equatable {}
+extension Goals: Mergeable {}
+extension WorkspaceColour: Mergeable {}
+extension RepositoryScope: Mergeable {}
+
+extension Dictionary: Mergeable where Value: Mergeable {
+  func merging(_ remote: Self, since base: Self) -> Self {
+    Set(keys).union(remote.keys).union(base.keys).reduce(into: [:]) { merged, key in
+      switch (self[key], remote[key], base[key]) {
+      case (let local?, let remote?, let base?): merged[key] = local.merging(remote, since: base)
+      case (let local, let remote, let base): merged[key] = local == base ? remote : local
+      }
+    }
+  }
+}
+
+extension Workspace: Mergeable {
+  func merging(_ remote: Workspace, since base: Workspace) -> Workspace {
+    Workspace(
+      goals: goals.merging(remote.goals, since: base.goals),
+      colour: colour.merging(remote.colour, since: base.colour))
+  }
+}
+
+extension Workspaces: Mergeable {
+  func merging(_ remote: Workspaces, since base: Workspaces) -> Workspaces {
+    Workspaces(
+      personal: personal.merging(remote.personal, since: base.personal),
+      organizations: organizations.merging(remote.organizations, since: base.organizations),
+      countsOnly: countsOnly.merging(remote.countsOnly, since: base.countsOnly),
+      showsLineChanges: showsLineChanges.merging(
+        remote.showsLineChanges, since: base.showsLineChanges))
+  }
+}
+
+extension OrganizationPreferences: Mergeable {
+  func merging(_ remote: OrganizationPreferences, since base: OrganizationPreferences)
+    -> OrganizationPreferences
+  {
+    OrganizationPreferences(
+      pinned: pinned.merging(remote.pinned, since: base.pinned),
+      names: names.merging(remote.names, since: base.names))
   }
 }
 
@@ -751,16 +813,16 @@ final class AppModel {
     guard let token = try? credentials.read(for: primary.id) else { return }
     let client = GitHubClient(token: token, session: session)
     let known = synced?.account == primary.id ? synced?.gist : nil
-    let scopes = remoteSettings?.scopes ?? [:]
+    let base = known.flatMap { try? SyncedSettings($0) }
     do {
-      let gist = try await settingsGist(client, known: known, keeping: scopes)
+      let gist = try await settingsGist(client, known: known, keeping: base?.scopes ?? [:])
       guard syncsSettings, connections.first?.id == primary.id else { return }
-      let settings = try? SyncedSettings(gist)
-      let isNewer = known.map { $0.id != gist.id || gist.updatedAt > $0.updatedAt } ?? true
-      if let settings, isNewer { apply(settings) }
+      let remote = try? SyncedSettings(gist)
+      let current = localSettings(keeping: base?.scopes ?? [:])
+      if let remote { apply(current.merging(remote, since: base ?? current)) }
       synced = SyncedGist(account: primary.id, gist: gist)
-      let local = localSettings(keeping: settings?.scopes ?? scopes)
-      if local != settings {
+      let local = localSettings(keeping: remote?.scopes ?? [:])
+      if local != remote {
         let updated = try await client.updateGist(
           gist.id, file: SyncedSettings.file, content: try local.content())
         synced = SyncedGist(account: primary.id, gist: updated)

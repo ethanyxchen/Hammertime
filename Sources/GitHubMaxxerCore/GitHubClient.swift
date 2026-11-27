@@ -243,7 +243,6 @@ public struct GitHubClient: Sendable {
 public struct Gist: Codable, Sendable, Equatable {
   public let id: String
   public let content: String
-  public let updatedAt: Date
   public let etag: String?
 
   init(_ data: Data, _ response: HTTPURLResponse, file: String) throws {
@@ -251,7 +250,6 @@ public struct Gist: Codable, Sendable, Equatable {
     guard let content = gist.files[file]?.content else { throw GitHubError.invalidResponse }
     self.id = gist.id
     self.content = content
-    self.updatedAt = gist.updatedAt
     self.etag = response.value(forHTTPHeaderField: "ETag")
   }
 }
@@ -338,11 +336,6 @@ private struct GistRequest: Encodable {
 private struct GistResponse: Decodable {
   let id: String
   let description: String?
-  let updatedAt: Date
   let files: [String: File]
   struct File: Decodable { let content: String? }
-  enum CodingKeys: String, CodingKey {
-    case id, description, files
-    case updatedAt = "updated_at"
-  }
 }
