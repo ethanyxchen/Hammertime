@@ -154,7 +154,7 @@ private struct BannerStage: View {
           .asymmetric(
             insertion: .identity,
             removal: .offset(x: Self.offstage).combined(with: .opacity)))
-        HammerSwing(landing: banner, overscan: MergeBanner.overscan)
+        HammerSwing(slam: model.hammer(for: banner), overscan: MergeBanner.overscan)
           .transition(.identity)
       }
     }

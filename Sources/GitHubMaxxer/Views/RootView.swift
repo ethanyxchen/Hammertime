@@ -231,7 +231,8 @@ struct RootView: View {
         SettingsPanel(pane: pane) { model.connectionDraft = ConnectionDraft(existing: $0) }
       }
     }
-    .overlay { HammerSlam(landing: model.landing).ignoresSafeArea() }
+    .overlay { HammerSlam(landing: model.landing, hammer: model.hammer(for: model.landing))
+        .ignoresSafeArea() }
     .sheet(item: Bindable(model).connectionDraft) { draft in
       Group {
         if draft.signsIn, let connection = draft.existing {

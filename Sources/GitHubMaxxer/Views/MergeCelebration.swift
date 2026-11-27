@@ -39,26 +39,27 @@ struct Choreography<Content: View>: View {
 
 struct HammerSlam: View {
   let landing: Landing?
+  let hammer: Date?
 
   var body: some View {
-    HammerShatter(landing: landing).overlay { HammerSwing(landing: landing, overscan: 1) }
+    HammerShatter(landing: landing).overlay { HammerSwing(slam: hammer, overscan: 1) }
   }
 }
 
 struct HammerSwing: View {
-  let landing: Landing?
+  let slam: Date?
   let overscan: Double
 
   var body: some View {
-    Choreography(start: landing?.slam, duration: Swing.timeline.duration) { time in
+    Choreography(start: slam, duration: Swing.timeline.duration) { time in
       if time > Swing.entrance, time < Swing.timeline.duration {
         let swing = Swing.timeline.value(time: time)
         Sledgehammer(swing: swing, overscan: overscan).opacity(swing.opacity)
       }
     }
-    .task(id: landing?.slam) {
-      guard let date = landing?.slam else { return }
-      Soundtrack.shared.play(elapsed: -date.timeIntervalSinceNow)
+    .task(id: slam) {
+      guard let slam else { return }
+      Soundtrack.shared.play(elapsed: -slam.timeIntervalSinceNow)
     }
     .task { _ = SledgehammerRig.shared }
     .allowsHitTesting(false)
@@ -106,6 +107,7 @@ struct ScreenCracks: View {
         web.flash(in: context, size: size, time: time)
       }
     }
+    .overlay { HammerSwing(slam: slam, overscan: 1) }
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }

@@ -279,6 +279,10 @@ final class AppModel {
     }?.slam
   }
 
+  func hammer(for landing: Landing?) -> Date? {
+    landing?.slam.flatMap { $0 == smash ? nil : $0 }
+  }
+
   var isWelcoming: Bool {
     connections.isEmpty
       || landing.map { $0.pullRequests.isEmpty && $0.slam != nil && $0.reveal > now } == true

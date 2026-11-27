@@ -722,6 +722,7 @@ struct AppModelTests {
 
     let banner = try #require(model.banner)
     #expect(model.smash == (smashes ? banner.slam : nil))
+    #expect(model.hammer(for: banner) == (smashes ? nil : banner.slam))
   }
 
   @Test func mergesWhileUnfocusedWaitInTheBannerUntilFocus() async throws {
