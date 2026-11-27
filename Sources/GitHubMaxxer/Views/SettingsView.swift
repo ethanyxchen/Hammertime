@@ -144,7 +144,7 @@ private struct SettingsView: View {
   }
 
   @ViewBuilder private var tracking: some View {
-    SettingsSection("Display") {
+    SettingsSection("Display and sound") {
       SettingsToggle(
         "Show lines changed",
         isOn: Binding(get: { model.showsLineChanges }, set: { model.setShowsLineChanges($0) }))
