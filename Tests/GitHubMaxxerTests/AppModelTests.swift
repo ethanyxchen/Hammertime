@@ -568,13 +568,26 @@ struct AppModelTests {
     let notice = try #require(model.notices.first)
     #expect(model.notices.count == 1)
     #expect(notice.signIn == id)
-    #expect(notice.title.contains("can't see 2 organizations"))
+    #expect(notice.title == "Hammertime can't see Acme and beta")
 
     model.show(notice)
 
     let draft = try #require(model.connectionDraft)
     #expect(draft.signsIn)
     #expect(draft.existing?.id == id)
+  }
+
+  @Test func onlyCountedOrganizationsHiddenBySingleSignOnNeedAttention() async throws {
+    let (model, id) = try refreshingModel(
+      SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false, owners: ["acme"]))
+    await model.refresh()
+    #expect(model.hiddenOrganizations[id] == ["Acme", "beta"])
+    #expect(model.notices.map(\.title) == ["Hammertime can't see Acme"])
+
+    let (untracked, _) = try refreshingModel(
+      SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false))
+    await untracked.refresh()
+    #expect(untracked.notices.isEmpty)
   }
 
   @Test func goingOfflineKeepsTheHiddenOrganizationsNotice() async throws {
@@ -586,11 +599,16 @@ struct AppModelTests {
     #expect(model.notices.map(\.signIn) == [nil, id])
   }
 
-  private func refreshingModel(_ protocolClass: AnyClass) throws -> (AppModel, UUID) {
+  private func refreshingModel(
+    _ protocolClass: AnyClass, scope: RepositoryScope = RepositoryScope()
+  )
+    throws -> (AppModel, UUID)
+  {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let url = directory.appending(path: "state.json")
-    let connection = PreviewData.connections(now: .now)[0]
+    var connection = PreviewData.connections(now: .now)[0]
+    connection.scope = scope
     try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
     let store = TestCredentials()
     try store.save("test-credential", for: connection.id)
@@ -949,21 +967,30 @@ private class SingleSignOnProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
-    let isRepositories = request.url!.path() == "/user/repos"
+    let (status, headers, body): (Int, [String: String]?, String) =
+      switch request.url!.path() {
+      case "/user/repos":
+        (200, ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"], "[]")
+      case "/organizations/21955855":
+        (
+          403,
+          [
+            "X-GitHub-SSO": "required; url=https://github.com/orgs/Acme/sso?authorization_request=a"
+          ], "{}"
+        )
+      case "/organizations/20582480": (200, nil, #"{"login":"beta"}"#)
+      default:
+        (
+          200, nil,
+          #"{"data":{"search":{"issueCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}"#
+        )
+      }
     client?.urlProtocol(
       self,
       didReceive: HTTPURLResponse(
-        url: request.url!, statusCode: 200, httpVersion: nil,
-        headerFields: isRepositories
-          ? ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"] : nil)!,
+        url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!,
       cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(
-      self,
-      didLoad: Data(
-        (isRepositories
-          ? "[]"
-          : #"{"data":{"search":{"issueCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}"#)
-          .utf8))
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}

@@ -143,9 +143,11 @@ public struct RepositoryScope: Codable, Sendable, Equatable {
   }
 
   public func includes(_ repository: Repository) -> Bool {
-    allRepositories
-      || includesOwner(repository.owner)
-      || repositories.contains(repository.id)
+    counts(repository.owner) || repositories.contains(repository.id)
+  }
+
+  public func counts(_ owner: String) -> Bool {
+    allRepositories || includesOwner(owner)
   }
 
   public func includesOwner(_ owner: String) -> Bool {

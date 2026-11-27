@@ -55,15 +55,10 @@ struct RepositoriesView: View {
                   }
                 ))
               Spacer()
-              Menu("Count repositories from") {
-                ForEach(owners(of: account), id: \.self) { owner in
-                  Toggle(model.displayName(for: owner), isOn: ownerBinding(owner, account: account))
-                }
-              }
-              .fixedSize()
+              organizationsMenu(account)
             }
             Text(
-              "Only PRs you author count. Counting an organisation or account includes all of its repositories, now and in future. Organisations you count appear in the sidebar."
+              "Only PRs you author count. Counting an organization or person in the Organizations menu includes all of their repositories, now and in future. Organizations you count appear in the sidebar."
             )
             .font(.callout).foregroundStyle(.secondary)
           }
@@ -80,7 +75,7 @@ struct RepositoriesView: View {
                 )
                 .labelsHidden().toggleStyle(.checkbox)
                 .disabled(
-                  account.scope.allRepositories || account.scope.includesOwner(repository.owner)
+                  account.scope.counts(repository.owner)
                 )
                 .padding(.vertical, 7)
               }
@@ -115,6 +110,37 @@ struct RepositoriesView: View {
     }
   }
 
+  private func organizationsMenu(_ account: AccountConnection) -> some View {
+    let owners = owners(of: account)
+    let visible = Set(owners.map(OrganizationPreferences.key))
+    let hidden = model.hiddenOrganizations[account.id, default: []].filter {
+      !visible.contains(OrganizationPreferences.key($0))
+    }
+    let counted = (owners + hidden).count(where: account.scope.counts)
+    return Menu {
+      ownerSection("Organizations", owners.filter { !model.isPerson($0) }, account: account)
+      ownerSection("People", owners.filter(model.isPerson), account: account)
+      ownerSection("Hidden until you authorize single sign-on", hidden, account: account)
+    } label: {
+      Label("Organizations · \(counted) counted", systemImage: "building.2")
+    }
+    .help("Count every repository from an organization or person")
+    .fixedSize()
+  }
+
+  @ViewBuilder
+  private func ownerSection(_ title: String, _ owners: [String], account: AccountConnection)
+    -> some View
+  {
+    if !owners.isEmpty {
+      Section(title) {
+        ForEach(owners, id: \.self) { owner in
+          Toggle(model.displayName(for: owner), isOn: ownerBinding(owner, account: account))
+        }
+      }
+    }
+  }
+
   private func owners(of account: AccountConnection) -> [String] {
     Dictionary(account.snapshot.visibleRepositories.map { ($0.owner.lowercased(), $0.owner) }) {
       first, _ in first
@@ -124,7 +150,7 @@ struct RepositoriesView: View {
 
   private func ownerBinding(_ owner: String, account: AccountConnection) -> Binding<Bool> {
     Binding {
-      account.scope.allRepositories || account.scope.includesOwner(owner)
+      account.scope.counts(owner)
     } set: {
       model.setCounted($0, owner: owner, for: account.id)
     }

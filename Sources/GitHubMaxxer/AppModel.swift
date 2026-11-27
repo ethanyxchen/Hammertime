@@ -205,7 +205,7 @@ final class AppModel {
   private(set) var isRefreshing = false
   private(set) var isConnecting = false
   private var connectionErrors: [UUID: any Error] = [:]
-  private(set) var hiddenOrganizations: [UUID: Int] = [:]
+  private(set) var hiddenOrganizations: [UUID: [String]] = [:]
   private var storageNotice: Notice?
   private var syncNotice: Notice?
   private(set) var now = Date.now
@@ -422,16 +422,20 @@ final class AppModel {
           detail: error.localizedDescription, signIn: signIn ? account.id : nil))
       if signIn { return notices }
     }
-    let hidden = hiddenOrganizations[account.id, default: 0]
-    if hidden > 0 {
+    let unseen = unseenOrganizations(of: account)
+    if !unseen.isEmpty {
       notices.append(
         Notice(
           id: "hidden-\(account.id)",
-          title:
-            "Hammertime can't see \(hidden) \(hidden == 1 ? "organization" : "organizations")",
-          detail: "Sign in again and authorize them on GitHub.", signIn: account.id))
+          title: "Hammertime can't see \(unseen.map(displayName).formatted())",
+          detail: "Sign in again and authorize \(unseen.count == 1 ? "it" : "them") on GitHub.",
+          signIn: account.id))
     }
     return notices
+  }
+
+  func unseenOrganizations(of account: AccountConnection) -> [String] {
+    hiddenOrganizations[account.id, default: []].filter(account.scope.counts)
   }
 
   private static func needsSignIn(_ error: any Error) -> Bool {

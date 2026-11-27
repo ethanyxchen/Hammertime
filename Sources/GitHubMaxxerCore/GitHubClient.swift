@@ -98,7 +98,7 @@ public struct GitHubClient: Sendable {
     return result
   }
 
-  public func singleSignOnHiddenOrganizations() async throws -> Int {
+  public func singleSignOnHiddenOrganizations() async throws -> [String] {
     let (_, response) = try await send("user/repos?per_page=1")
     let field = "organizations="
     guard let header = response.value(forHTTPHeaderField: "X-GitHub-SSO"),
@@ -106,8 +106,25 @@ public struct GitHubClient: Sendable {
       let organizations = header.split(separator: ";")
         .map({ $0.trimmingCharacters(in: .whitespaces) })
         .first(where: { $0.hasPrefix(field) })
-    else { return 0 }
-    return organizations.dropFirst(field.count).split(separator: ",").count
+    else { return [] }
+    let ids = organizations.dropFirst(field.count).split(separator: ",")
+    return try await withThrowingTaskGroup { group in
+      for id in ids { group.addTask { try await organization(id) } }
+      var logins: [String] = []
+      for try await login in group { logins.append(login) }
+      return logins.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+  }
+
+  private func organization(_ id: Substring) async throws -> String {
+    let (data, response) = try await request("organizations/\(id)")
+    if let login = response.value(forHTTPHeaderField: "X-GitHub-SSO")?
+      .firstMatch(of: /\/orgs\/([^\/]+)\/sso/)?.1
+    {
+      return String(login)
+    }
+    try Self.check(response)
+    return try Self.decoder.decode(OrganizationResponse.self, from: data).login
   }
 
   public func gist(named file: String, description: String) async throws -> Gist? {
@@ -188,6 +205,14 @@ public struct GitHubClient: Sendable {
   private func send(
     _ path: String, method: String = "GET", body: Data? = nil, headers: [String: String] = [:]
   ) async throws -> (Data, HTTPURLResponse) {
+    let (data, response) = try await request(path, method: method, body: body, headers: headers)
+    try Self.check(response)
+    return (data, response)
+  }
+
+  private func request(
+    _ path: String, method: String = "GET", body: Data? = nil, headers: [String: String] = [:]
+  ) async throws -> (Data, HTTPURLResponse) {
     var request = URLRequest(url: URL(string: "https://api.github.com/\(path)")!)
     request.httpMethod = method
     request.timeoutInterval = 30
@@ -200,8 +225,12 @@ public struct GitHubClient: Sendable {
     request.httpBody = body
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse else { throw GitHubError.invalidResponse }
+    return (data, response)
+  }
+
+  private static func check(_ response: HTTPURLResponse) throws {
     switch response.statusCode {
-    case 200..<300, 304: return (data, response)
+    case 200..<300, 304: return
     case 401: throw GitHubError.unauthorized
     case 403, 429:
       if response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
@@ -284,6 +313,7 @@ private struct Page<Node: Decodable & Sendable>: Decodable, Sendable {
   let pageInfo: PageInfo
 }
 private struct ProfileResponse: Decodable, Sendable { let viewer: GitHubProfile }
+private struct OrganizationResponse: Decodable { let login: String }
 private struct RepositoriesResponse: Decodable, Sendable {
   let viewer: Viewer
   struct Viewer: Decodable, Sendable { let repositories: Page<Repository> }

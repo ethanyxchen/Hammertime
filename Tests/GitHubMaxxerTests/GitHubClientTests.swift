@@ -27,18 +27,28 @@ struct GitHubClientTests {
     #expect(profile.displayName == "alex")
   }
 
-  @Test func countsOrganizationsHiddenBySingleSignOn() async throws {
+  @Test func namesOrganizationsHiddenBySingleSignOn() async throws {
     let hidden = client { request in
-      #expect(request.url?.path() == "/user/repos")
-      return StubResponse(
-        headers: ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"], body: "[]")
+      switch request.url?.path() {
+      case "/user/repos":
+        StubResponse(
+          headers: ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"], body: "[]")
+      case "/organizations/21955855":
+        StubResponse(
+          status: 403,
+          headers: [
+            "X-GitHub-SSO": "required; url=https://github.com/orgs/Zeta/sso?authorization_request=z"
+          ], body: "{}")
+      case "/organizations/20582480": StubResponse(body: #"{"login":"acme"}"#)
+      default: StubResponse(status: 404, body: "{}")
+      }
     }
-    #expect(try await hidden.singleSignOnHiddenOrganizations() == 2)
+    #expect(try await hidden.singleSignOnHiddenOrganizations() == ["acme", "Zeta"])
     let visible = client { _ in StubResponse(body: "[]") }
-    #expect(try await visible.singleSignOnHiddenOrganizations() == 0)
+    #expect(try await visible.singleSignOnHiddenOrganizations().isEmpty)
     for header in ["partial-results", "partial-results; organizations="] {
       let unnamed = client { _ in StubResponse(headers: ["X-GitHub-SSO": header], body: "[]") }
-      #expect(try await unnamed.singleSignOnHiddenOrganizations() == 0)
+      #expect(try await unnamed.singleSignOnHiddenOrganizations().isEmpty)
     }
   }
 
