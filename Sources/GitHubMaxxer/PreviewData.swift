@@ -29,6 +29,8 @@ enum PreviewData {
         url: URL(
           string: "https://github.com/\(repositories[index % 4].nameWithOwner)/pull/\(400 - index)")!,
         mergedAt: now.addingTimeInterval(-(Double(index) * 10.4 + Double(index * 7 % 5)) * 3_600),
+        additions: [186, 64, 1_240, 12, 23, 3, 418, 9][index % 8] * (1 + index % 3),
+        deletions: [42, 9, 388, 604, 11, 3, 97, 0][index % 8],
         repository: repositories[index % 4]
       )
     }

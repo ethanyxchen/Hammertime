@@ -75,7 +75,7 @@ public struct GitHubClient: Sendable {
             issueCount
             nodes {
               ... on PullRequest {
-                id title number url mergedAt
+                id title number url mergedAt additions deletions
                 repository { id nameWithOwner isPrivate ownerKind: owner { __typename } }
               }
             }

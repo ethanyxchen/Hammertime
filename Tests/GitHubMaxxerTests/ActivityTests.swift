@@ -28,7 +28,7 @@ struct ActivityTests {
     MergedPullRequest(
       id: id, title: "Improve search", number: 42,
       url: URL(string: "https://github.com/\(repo)/pull/42")!,
-      mergedAt: date(merged),
+      mergedAt: date(merged), additions: 10, deletions: 2,
       repository: Repository(id: repo, nameWithOwner: repo, isPrivate: false, ownerKind: ownerKind)
     )
   }
@@ -67,6 +67,21 @@ struct ActivityTests {
       repositories: [], pullRequests: [], fetchedAt: date("2026-01-01T00:00:00Z"))
     #expect(
       stale.refreshInterval(endingAt: now).start == Activity.historyInterval(endingAt: now).start)
+  }
+
+  @Test func cachedPullRequestsWithoutLineCountsAreFetchedAgain() throws {
+    let cached = """
+      {"repositories":[],"fetchedAt":812000000,"pullRequests":[{"id":"p1","title":"Ship","number":1,\
+      "url":"https://github.com/acme/app/pull/1","mergedAt":812000000,\
+      "repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false}}]}
+      """
+    let snapshot = try JSONDecoder().decode(GitHubSnapshot.self, from: Data(cached.utf8))
+    let now = date("2026-09-30T12:00:00Z")
+    #expect(snapshot.pullRequests.isEmpty)
+    #expect(!snapshot.hasFetched)
+    #expect(
+      snapshot.refreshInterval(endingAt: now).start
+        == Activity.historyInterval(endingAt: now).start)
   }
 
   @Test func recordNeverDropsAPullRequestTheRefreshOmits() {

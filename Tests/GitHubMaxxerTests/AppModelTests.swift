@@ -347,6 +347,17 @@ struct AppModelTests {
     #expect(!model.isReached(.day, in: pulls, filter: .personal))
   }
 
+  @Test func hidingLineChangesSyncs() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, _, token) = try syncingModel(in: directory)
+
+    model.setShowsLineChanges(false)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.showsLineChanges == false)
+  }
+
   @Test func countsOnlySyncsAndDefaultsOffForOlderSettings() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -360,6 +371,7 @@ struct AppModelTests {
       Workspaces.self,
       from: Data(#"{"personal":{"goals":{"daily":2},"colour":"plum"},"organizations":{}}"#.utf8))
     #expect(!older.countsOnly)
+    #expect(older.showsLineChanges)
     #expect(older.personal.goals == Goals(daily: 2))
   }
 
@@ -665,6 +677,29 @@ struct AppModelTests {
     #expect(model.landing?.pullRequests == ["fresh-first", "fresh-second"])
   }
 
+  @Test func refetchingTheWholeHistoryNeverCelebrates() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "state.json")
+    var connection = PreviewData.connections(now: .now)[0]
+    connection.snapshot = GitHubSnapshot(repositories: [], pullRequests: [], fetchedAt: .distantPast)
+    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+    let store = TestCredentials()
+    try store.save("test-credential", for: connection.id)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MergedProtocol.self]
+    let model = AppModel(
+      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+    model.setFocused(true)
+
+    await model.refresh()
+
+    #expect(model.pullRequests.contains { $0.id == "fresh-test-credential" })
+    #expect(model.landing == nil)
+    #expect(model.banner == nil)
+  }
+
   @Test func mergesWhileUnfocusedWaitInTheBannerUntilFocus() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -768,7 +803,7 @@ private func mergedPullRequest(in repository: Repository) -> MergedPullRequest {
   MergedPullRequest(
     id: repository.id, title: "Ship", number: 1,
     url: URL(string: "https://github.com/\(repository.nameWithOwner)/pull/1")!,
-    mergedAt: .now.addingTimeInterval(-1), repository: repository)
+    mergedAt: .now.addingTimeInterval(-1), additions: 10, deletions: 2, repository: repository)
 }
 
 @MainActor
@@ -912,7 +947,7 @@ private final class MergedProtocol: URLProtocol, @unchecked Sendable {
         Data(
           ((try? requestBody(request)["query"] as? String)?.contains("search(query") == true
             ? """
-            {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/acme/app/pull/1","mergedAt":"\(mergedAt)","repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
+            {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/acme/app/pull/1","mergedAt":"\(mergedAt)","additions":5,"deletions":1,"repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
             """
             : """
             {"data":{"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}

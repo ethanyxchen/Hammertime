@@ -231,6 +231,14 @@ private struct SettingsView: View {
         .labelsHidden().toggleStyle(.switch).controlSize(.small)
         .disabled(model.isPreview)
       }
+      LabeledContent("Show lines changed") {
+        Toggle(
+          "Show lines changed",
+          isOn: Binding(
+            get: { model.showsLineChanges }, set: { model.setShowsLineChanges($0) })
+        )
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+      }
       LabeledContent("Merge celebration sound") {
         Toggle(
           "Merge celebration sound",
