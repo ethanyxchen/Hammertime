@@ -372,10 +372,7 @@ final class AppModel {
   func setCoverage(_ coverage: RepositoryScope.Coverage, owner: String, for id: UUID) {
     guard let account = connections.first(where: { $0.id == id }) else { return }
     setScope(
-      account.scope.covering(
-        owner, coverage, among: account.snapshot.visibleRepositories,
-        hidden: hiddenOrganizations(of: id)),
-      for: id)
+      account.scope.covering(owner, coverage, among: account.snapshot.visibleRepositories), for: id)
   }
 
   func stopCounting(_ owner: String) {

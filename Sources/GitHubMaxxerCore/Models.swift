@@ -125,21 +125,16 @@ public struct GitHubSnapshot: Codable, Sendable {
 }
 
 public struct RepositoryScope: Codable, Sendable, Equatable {
-  public var allRepositories: Bool
   public var owners: Set<String>
   public var repositories: Set<String>
 
-  public init(
-    allRepositories: Bool = true, owners: Set<String> = [], repositories: Set<String> = []
-  ) {
-    self.allRepositories = allRepositories
+  public init(owners: Set<String> = [], repositories: Set<String> = []) {
     self.owners = owners
     self.repositories = repositories
   }
 
   public static func active(in pulls: [MergedPullRequest], login: String) -> RepositoryScope {
-    RepositoryScope(
-      allRepositories: false, owners: Set(pulls.map(\.repository.owner)).union([login]))
+    RepositoryScope(owners: Set(pulls.map(\.repository.owner)).union([login]))
   }
 
   public func includes(_ repository: Repository) -> Bool {
@@ -147,23 +142,14 @@ public struct RepositoryScope: Codable, Sendable, Equatable {
   }
 
   public func counts(_ owner: String) -> Bool {
-    allRepositories || includesOwner(owner)
-  }
-
-  public func includesOwner(_ owner: String) -> Bool {
     owners.contains { $0.caseInsensitiveCompare(owner) == .orderedSame }
   }
 
-  public func counting(
-    _ owner: String, _ counted: Bool, among available: [Repository], hidden: [String] = []
-  ) -> RepositoryScope {
+  public func counting(_ owner: String, _ counted: Bool, among available: [Repository])
+    -> RepositoryScope
+  {
     var scope = self
-    if allRepositories {
-      guard !counted else { return self }
-      scope.allRepositories = false
-      scope.owners = Set(available.map(\.owner) + hidden)
-    }
-    scope.owners = scope.owners.filter { $0.caseInsensitiveCompare(owner) != .orderedSame }
+    scope.owners = owners.filter { $0.caseInsensitiveCompare(owner) != .orderedSame }
     if counted { scope.owners.insert(owner) }
     scope.repositories.subtract(available.owned(by: owner).map(\.id))
     return scope
@@ -178,15 +164,15 @@ public struct RepositoryScope: Codable, Sendable, Equatable {
     return available.owned(by: owner).contains { repositories.contains($0.id) } ? .some : .none
   }
 
-  public func covering(
-    _ owner: String, _ coverage: Coverage, among available: [Repository], hidden: [String] = []
-  ) -> RepositoryScope {
+  public func covering(_ owner: String, _ coverage: Coverage, among available: [Repository])
+    -> RepositoryScope
+  {
     switch coverage {
-    case .all: return counting(owner, true, among: available, hidden: hidden)
-    case .none: return counting(owner, false, among: available, hidden: hidden)
+    case .all: return counting(owner, true, among: available)
+    case .none: return counting(owner, false, among: available)
     case .some:
       guard counts(owner) else { return self }
-      var scope = counting(owner, false, among: available, hidden: hidden)
+      var scope = counting(owner, false, among: available)
       scope.repositories.formUnion(available.owned(by: owner).map(\.id))
       return scope
     }
