@@ -145,30 +145,17 @@ private struct SettingsView: View {
 
   @ViewBuilder private var tracking: some View {
     SettingsSection("Display") {
-      LabeledContent("Show lines changed") {
-        Toggle(
-          "Show lines changed",
-          isOn: Binding(
-            get: { model.showsLineChanges }, set: { model.setShowsLineChanges($0) })
-        )
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
-      }
-      LabeledContent("Merge celebration sound") {
-        Toggle(
-          "Merge celebration sound",
-          isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 })
-        )
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
-      }
+      SettingsToggle(
+        "Show lines changed",
+        isOn: Binding(get: { model.showsLineChanges }, set: { model.setShowsLineChanges($0) }))
+      SettingsToggle(
+        "Merge celebration sound",
+        isOn: Binding(get: { !isSlamSoundMuted }, set: { isSlamSoundMuted = !$0 }))
     }
     SettingsSection("Targets") {
-      LabeledContent("Use targets") {
-        Toggle(
-          "Use targets",
-          isOn: Binding(get: { !model.countsOnly }, set: { model.setCountsOnly(!$0) })
-        )
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
-      }
+      SettingsToggle(
+        "Use targets",
+        isOn: Binding(get: { !model.countsOnly }, set: { model.setCountsOnly(!$0) }))
       if !model.countsOnly {
         ForEach(model.workspaces, id: \.self) { TargetRow(workspace: $0) }
         LabeledContent(ActivityFilter.all.title) {
@@ -235,35 +222,25 @@ private struct SettingsView: View {
 
   @ViewBuilder private var general: some View {
     SettingsSection("General") {
-      LabeledContent("Open at login") {
-        Toggle(
-          "Open at login",
-          isOn: Binding(
-            get: { opensAtLogin },
-            set: {
-              LoginItem.setEnabled($0)
-              opensAtLogin = LoginItem.isEnabled
-            })
-        )
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
-        .disabled(model.isPreview)
-      }
-      LabeledContent("Sync settings with GitHub") {
-        Toggle(
-          "Sync settings with GitHub",
-          isOn: Binding(get: { model.syncsSettings }, set: { model.setSyncsSettings($0) })
-        )
-        .labelsHidden().toggleStyle(.switch).controlSize(.small)
-        .disabled(model.isPreview)
-      }
+      SettingsToggle(
+        "Open at login",
+        isOn: Binding(
+          get: { opensAtLogin },
+          set: {
+            LoginItem.setEnabled($0)
+            opensAtLogin = LoginItem.isEnabled
+          })
+      )
+      .disabled(model.isPreview)
+      SettingsToggle(
+        "Sync settings with GitHub",
+        isOn: Binding(get: { model.syncsSettings }, set: { model.setSyncsSettings($0) })
+      )
+      .disabled(model.isPreview)
     }
     SettingsSection("Software update") {
-      LabeledContent("Check automatically") {
-        @Bindable var softwareUpdate = softwareUpdate
-        Toggle("Check automatically", isOn: $softwareUpdate.checksAutomatically)
-          .labelsHidden().toggleStyle(.switch).controlSize(.small)
-          .disabled(model.isPreview)
-      }
+      SettingsToggle("Check automatically", isOn: Bindable(softwareUpdate).checksAutomatically)
+        .disabled(model.isPreview)
       LabeledContent("Latest version") {
         Button("Check for Updates…") { softwareUpdate.check() }
           .disabled(!softwareUpdate.canCheck || model.isPreview)
@@ -306,6 +283,23 @@ private struct SettingsSection<Content: View, Accessory: View>: View {
       .labeledContentStyle(SettingsRowStyle())
       .padding(.horizontal, inset)
       .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+    }
+  }
+}
+
+private struct SettingsToggle: View {
+  let title: String
+  @Binding var isOn: Bool
+
+  init(_ title: String, isOn: Binding<Bool>) {
+    self.title = title
+    _isOn = isOn
+  }
+
+  var body: some View {
+    LabeledContent(title) {
+      Toggle(title, isOn: $isOn)
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
     }
   }
 }
