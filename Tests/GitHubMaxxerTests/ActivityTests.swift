@@ -214,6 +214,30 @@ struct ActivityTests {
     #expect(!scope.includes(Repository(id: "no", nameWithOwner: "other/app", isPrivate: false)))
   }
 
+  @Test func ownerCoverageMovesBetweenAllSomeAndNone() {
+    let available = [
+      Repository(id: "app", nameWithOwner: "Acme/app", isPrivate: true),
+      Repository(id: "web", nameWithOwner: "acme/web", isPrivate: false),
+      Repository(id: "mine", nameWithOwner: "me/mine", isPrivate: false),
+    ]
+    let none = RepositoryScope(allRepositories: false, owners: ["me"])
+    #expect(none.coverage(of: "acme", among: available) == .none)
+    #expect(none.covering("acme", .some, among: available) == none)
+
+    let all = none.covering("ACME", .all, among: available)
+    #expect(all.coverage(of: "acme", among: available) == .all)
+
+    let some = all.covering("acme", .some, among: available)
+    #expect(
+      some == RepositoryScope(allRepositories: false, owners: ["me"], repositories: ["app", "web"]))
+    #expect(some.coverage(of: "acme", among: available) == .some)
+    #expect(some.covering("acme", .none, among: available) == none)
+
+    let everything = RepositoryScope().covering("acme", .some, among: available)
+    #expect(everything.owners == ["me"])
+    #expect(everything.repositories == ["app", "web"])
+  }
+
   @Test func allRepositoriesAndEmptySelectionDiffer() {
     let repo = Repository(id: "1", nameWithOwner: "acme/app", isPrivate: true)
     #expect(RepositoryScope().includes(repo))

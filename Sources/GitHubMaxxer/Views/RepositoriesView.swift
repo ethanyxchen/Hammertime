@@ -5,101 +5,26 @@ struct RepositoriesView: View {
   @Environment(AppModel.self) private var model
   let search: String
   @State private var selectedConnection: UUID?
+  @State private var picking: Set<String> = []
 
   private var account: AccountConnection? {
     model.connections.first { $0.id == selectedConnection } ?? model.connections.first
   }
 
-  private var repositories: [Repository] {
-    (account?.snapshot.visibleRepositories ?? []).filter {
-      search.isEmpty || $0.nameWithOwner.localizedCaseInsensitiveContains(search)
-    }
-  }
-
   var body: some View {
     Group {
       if let account {
-        VStack(spacing: 0) {
-          VStack(alignment: .leading, spacing: 12) {
-            HStack {
-              if model.connections.count > 1 {
-                Picker(
-                  "Connection",
-                  selection: Binding(
-                    get: { self.account?.id ?? account.id }, set: { selectedConnection = $0 }
-                  )
-                ) {
-                  ForEach(model.connections) { connection in
-                    Text("\(connection.label) · @\(connection.profile.login)").tag(connection.id)
-                  }
-                }
-                .frame(width: 340)
-              } else {
-                Text("\(account.label) · @\(account.profile.login)").font(.headline)
-              }
-              Spacer()
-              Text(
-                "\(repositories.filter { account.scope.includes($0) }.count) of \(repositories.count) tracked"
-              )
-              .font(.callout).foregroundStyle(.secondary).monospacedDigit()
-            }
-            HStack {
-              Toggle(
-                "Track all accessible repositories",
-                isOn: Binding(
-                  get: { account.scope.allRepositories },
-                  set: { value in
-                    var scope = account.scope
-                    scope.allRepositories = value
-                    model.setScope(scope, for: account.id)
-                  }
-                ))
-              Spacer()
-              organizationsMenu(account)
-            }
-            Text(
-              "Only PRs you author count. Counting an organization or person in the Organizations menu includes all of their repositories, now and in future. Organizations you count appear in the sidebar."
-            )
-            .font(.callout).foregroundStyle(.secondary)
+        let owners = owners(of: account)
+        let hidden = hiddenOrganizations(of: account)
+        VStack(alignment: .leading, spacing: 0) {
+          header(account).padding(20)
+          List {
+            ForEach(owners, id: \.self) { owner in ownerRow(owner, account: account) }
+            ForEach(hidden, id: \.self) { owner in hiddenRow(owner, account: account) }
           }
-          .padding(20)
-          if repositories.isEmpty {
-            ContentUnavailableView.search(text: search)
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
-          } else {
-            Table(repositories) {
-              TableColumn("Track") { repository in
-                Toggle(
-                  "Track \(repository.nameWithOwner)",
-                  isOn: repositoryBinding(repository, account: account)
-                )
-                .labelsHidden().toggleStyle(.checkbox)
-                .disabled(
-                  account.scope.counts(repository.owner)
-                )
-                .padding(.vertical, 7)
-              }
-              .width(55)
-              TableColumn("Repository") { repository in
-                Label(repository.name, systemImage: "book.closed").lineLimit(1)
-              }
-              .width(min: 180, ideal: 330)
-              TableColumn("Owner") { repository in
-                Text(repository.owner).foregroundStyle(.secondary)
-              }
-              .width(min: 130, ideal: 180)
-              TableColumn("Visibility") { repository in
-                Text(repository.isPrivate ? "Private" : "Public").foregroundStyle(.secondary)
-              }
-              .width(80)
-            }
+          .overlay {
+            if owners.isEmpty && hidden.isEmpty { ContentUnavailableView.search(text: search) }
           }
-          Text(
-            "Missing a work repository? Check this credential's access and SSO authorization, or add another connection."
-          )
-          .font(.caption).foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 20).padding(.vertical, 14)
         }
       } else {
         ContentUnavailableView(
@@ -110,58 +35,159 @@ struct RepositoriesView: View {
     }
   }
 
-  private func organizationsMenu(_ account: AccountConnection) -> some View {
-    let owners = owners(of: account)
-    let visible = Set(owners.map(OrganizationPreferences.key))
-    let hidden = model.hiddenOrganizations(of: account.id).filter {
-      !visible.contains(OrganizationPreferences.key($0))
+  private func header(_ account: AccountConnection) -> some View {
+    let repositories = account.snapshot.visibleRepositories
+    return VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        if model.connections.count > 1 {
+          Picker(
+            "Connection",
+            selection: Binding(
+              get: { self.account?.id ?? account.id }, set: { selectedConnection = $0 })
+          ) {
+            ForEach(model.connections) { connection in
+              Text("\(connection.label) · @\(connection.profile.login)").tag(connection.id)
+            }
+          }
+          .frame(width: 340)
+        } else {
+          Text("\(account.label) · @\(account.profile.login)").font(.headline)
+        }
+        Spacer()
+        Text(
+          "\(repositories.count(where: account.scope.includes)) of \(repositories.count) tracked"
+        )
+        .font(.callout).foregroundStyle(.secondary).monospacedDigit()
+      }
+      Text(
+        "Choose whose repositories count. Only PRs you author count, and organizations you count appear in the sidebar."
+      )
+      .font(.callout).foregroundStyle(.secondary)
     }
-    let counted = (owners + hidden).count(where: account.scope.counts)
-    return Menu {
-      ownerSection("Organizations", owners.filter { !model.isPerson($0) }, account: account)
-      ownerSection("People", owners.filter(model.isPerson), account: account)
-      ownerSection("Hidden until you authorize single sign-on", hidden, account: account)
-    } label: {
-      Label("Organizations · \(counted) counted", systemImage: "building.2")
-    }
-    .help("Count every repository from an organization or person")
-    .fixedSize()
   }
 
-  @ViewBuilder
-  private func ownerSection(_ title: String, _ owners: [String], account: AccountConnection)
-    -> some View
-  {
-    if !owners.isEmpty {
-      Section(title) {
-        ForEach(owners, id: \.self) { owner in
-          Toggle(model.displayName(for: owner), isOn: ownerBinding(owner, account: account))
+  private func ownerRow(_ owner: String, account: AccountConnection) -> some View {
+    let repositories = account.snapshot.visibleRepositories.owned(by: owner)
+    let coverage = coverage(of: owner, account: account)
+    let summary = repositories.count == 1 ? "1 repository" : "\(repositories.count) repositories"
+    return VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 10) {
+        Image(systemName: model.isPerson(owner) ? "person" : "building.2")
+          .foregroundStyle(.secondary).frame(width: 18)
+        Text(model.displayName(for: owner))
+        Text(isYou(owner, account: account) ? "you · \(summary)" : summary)
+          .foregroundStyle(.secondary)
+        Spacer()
+        coveragePicker(owner, selection: coverage, account: account)
+      }
+      if coverage == .some {
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(
+            repositories.filter(matches).sorted {
+              $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+          ) { repository in
+            Toggle(isOn: repositoryBinding(repository, account: account)) {
+              HStack {
+                Text(repository.name).lineLimit(1)
+                Spacer()
+                Text(repository.isPrivate ? "Private" : "Public").foregroundStyle(.secondary)
+              }
+            }
+            .toggleStyle(.checkbox)
+          }
         }
+        .padding(.leading, 28)
       }
     }
+    .padding(.vertical, 6)
+  }
+
+  private func hiddenRow(_ owner: String, account: AccountConnection) -> some View {
+    HStack(spacing: 10) {
+      Image(systemName: "lock").foregroundStyle(.orange).frame(width: 18)
+      Text(model.displayName(for: owner))
+      Text("Hidden by single sign-on").foregroundStyle(.secondary)
+      Spacer()
+      Button("Authorize") {
+        model.connectionDraft = ConnectionDraft(existing: account, signsIn: true)
+      }
+      coveragePicker(
+        owner, selection: account.scope.counts(owner) ? .all : .none, account: account,
+        options: [.all, .none])
+    }
+    .padding(.vertical, 6)
+  }
+
+  private func coveragePicker(
+    _ owner: String, selection: RepositoryScope.Coverage, account: AccountConnection,
+    options: [RepositoryScope.Coverage] = RepositoryScope.Coverage.allCases
+  ) -> some View {
+    Picker(
+      "Count \(model.displayName(for: owner))",
+      selection: Binding(
+        get: { selection },
+        set: { coverage in
+          let key = OrganizationPreferences.key(owner)
+          if coverage == .some { picking.insert(key) } else { picking.remove(key) }
+          model.setCoverage(coverage, owner: owner, for: account.id)
+        })
+    ) {
+      ForEach(options, id: \.self) { coverage in Text(coverage.title).tag(coverage) }
+    }
+    .pickerStyle(.segmented).labelsHidden().fixedSize()
+  }
+
+  private func coverage(of owner: String, account: AccountConnection) -> RepositoryScope.Coverage {
+    let coverage = account.scope.coverage(of: owner, among: account.snapshot.visibleRepositories)
+    return coverage == .none && picking.contains(OrganizationPreferences.key(owner))
+      ? .some : coverage
   }
 
   private func owners(of account: AccountConnection) -> [String] {
-    Dictionary(account.snapshot.visibleRepositories.map { ($0.owner.lowercased(), $0.owner) }) {
+    let repositories = account.snapshot.visibleRepositories
+    let rank = { (owner: String) in
+      isYou(owner, account: account) ? 0 : model.isPerson(owner) ? 2 : 1
+    }
+    return Dictionary(repositories.map { (OrganizationPreferences.key($0.owner), $0.owner) }) {
       first, _ in first
     }
-    .values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-  }
-
-  private func ownerBinding(_ owner: String, account: AccountConnection) -> Binding<Bool> {
-    Binding {
-      account.scope.counts(owner)
-    } set: {
-      model.setCounted($0, owner: owner, for: account.id)
+    .values
+    .filter { owner in
+      search.isEmpty || owner.localizedCaseInsensitiveContains(search)
+        || repositories.owned(by: owner).contains(where: matches)
+    }
+    .sorted { first, second in
+      rank(first) != rank(second)
+        ? rank(first) < rank(second)
+        : first.localizedStandardCompare(second) == .orderedAscending
     }
   }
 
-  private func repositoryBinding(_ repository: Repository, account: AccountConnection) -> Binding<
-    Bool
-  > {
+  private func hiddenOrganizations(of account: AccountConnection) -> [String] {
+    let visible = Set(
+      account.snapshot.visibleRepositories.map { OrganizationPreferences.key($0.owner) })
+    return model.hiddenOrganizations(of: account.id).filter {
+      !visible.contains(OrganizationPreferences.key($0))
+        && (search.isEmpty || $0.localizedCaseInsensitiveContains(search))
+    }
+  }
+
+  private func isYou(_ owner: String, account: AccountConnection) -> Bool {
+    owner.caseInsensitiveCompare(account.profile.login) == .orderedSame
+  }
+
+  private func matches(_ repository: Repository) -> Bool {
+    search.isEmpty || repository.nameWithOwner.localizedCaseInsensitiveContains(search)
+  }
+
+  private func repositoryBinding(_ repository: Repository, account: AccountConnection)
+    -> Binding<Bool>
+  {
     Binding {
       account.scope.includes(repository)
     } set: { selected in
+      picking.insert(OrganizationPreferences.key(repository.owner))
       var scope = account.scope
       if selected {
         scope.repositories.insert(repository.id)
@@ -169,6 +195,16 @@ struct RepositoriesView: View {
         scope.repositories.remove(repository.id)
       }
       model.setScope(scope, for: account.id)
+    }
+  }
+}
+
+extension RepositoryScope.Coverage {
+  fileprivate var title: String {
+    switch self {
+    case .all: "All"
+    case .some: "Some"
+    case .none: "None"
     }
   }
 }

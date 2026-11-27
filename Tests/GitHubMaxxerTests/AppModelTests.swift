@@ -147,7 +147,7 @@ struct AppModelTests {
     #expect(reloaded.goals(for: .all) == Goals(daily: 2))
     #expect(reloaded.progress(for: .month).target == 40)
 
-    reloaded.setCounted(true, owner: "acme", for: connection.id)
+    reloaded.setCoverage(.all, owner: "acme", for: connection.id)
     #expect(reloaded.goals(for: .all) == Goals(daily: 6))
     #expect(reloaded.progress(for: .week, filter: .organization("acme")).target == 20)
   }
@@ -210,7 +210,7 @@ struct AppModelTests {
     #expect(reloaded.progress(for: .day).count == 1)
     #expect(reloaded.displayName(for: "acme") == "Acme Inc")
     reloaded.renameOrganization("acme", to: " ")
-    reloaded.setCounted(true, owner: "beta", for: connection.id)
+    reloaded.setCoverage(.all, owner: "beta", for: connection.id)
     #expect(Set(reloaded.pullRequests(for: .all)) == Set(pulls))
     #expect(reloaded.displayName(for: "acme") == "acme")
     #expect(reloaded.sidebarOrganizations == ["beta", "acme"])
@@ -239,11 +239,11 @@ struct AppModelTests {
     #expect(model.workspaces == [.organization("acme")])
     #expect(model.goals(for: .all) == Goals(daily: 1))
 
-    model.setCounted(true, owner: sample.profile.login.uppercased(), for: connection.id)
+    model.setCoverage(.all, owner: sample.profile.login.uppercased(), for: connection.id)
     #expect(model.workspaces == [.personal, .organization("acme")])
     #expect(model.goals(for: .all) == Goals(daily: 3))
 
-    model.setCounted(false, owner: sample.profile.login, for: connection.id)
+    model.setCoverage(.none, owner: sample.profile.login, for: connection.id)
     #expect(model.workspaces == [.organization("acme")])
     var scope = try #require(model.connections.first).scope
     scope.repositories.insert(repositories[1].id)
@@ -305,7 +305,7 @@ struct AppModelTests {
     model.stopCounting("ACME")
     #expect(model.sidebarOrganizations == ["beta"])
     model.setPinned(false, organization: "BETA")
-    model.setCounted(true, owner: "Acme", for: connection.id)
+    model.setCoverage(.all, owner: "Acme", for: connection.id)
     model.renameOrganization("BeTa", to: "")
     #expect(!model.isPinned("beta"))
     #expect(model.displayName(for: "beta") == "beta")
