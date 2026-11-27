@@ -378,6 +378,29 @@ struct AppModelTests {
     #expect(older.personal.goals == Goals(daily: 2))
   }
 
+  @Test func turningSyncOffLeavesTheGistAloneUntilItIsBackOn() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (model, _, token) = try syncingModel(in: directory)
+    model.setDailyGoal(4, for: .personal)
+    await model.syncSettings()
+
+    model.setSyncsSettings(false)
+    model.setDailyGoal(6, for: .personal)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 4))
+    let reloaded = AppModel(
+      stateURL: directory.appending(path: "state.json"), credentials: TestCredentials())
+    #expect(!reloaded.syncsSettings)
+    #expect(reloaded.goals(for: .personal) == Goals(daily: 6))
+
+    model.setSyncsSettings(true)
+    await model.syncSettings()
+
+    #expect(GistProtocol.settings(for: token)?.workspaces.personal.goals == Goals(daily: 6))
+  }
+
   @Test func syncCreatesTheGistFromLocalSettingsAndPushesChanges() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

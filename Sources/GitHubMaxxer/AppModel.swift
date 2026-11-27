@@ -176,6 +176,7 @@ private struct SavedState: Codable {
   var connections: [AccountConnection] = []
   var organizations = OrganizationPreferences()
   var synced: SyncedGist?
+  var syncsSettings = true
 }
 
 extension SavedState {
@@ -187,6 +188,7 @@ extension SavedState {
       try container.decodeIfPresent(OrganizationPreferences.self, forKey: .organizations)
       ?? OrganizationPreferences()
     synced = try container.decodeIfPresent(SyncedGist.self, forKey: .synced)
+    syncsSettings = try container.decodeIfPresent(Bool.self, forKey: .syncsSettings) ?? true
   }
 }
 
@@ -202,6 +204,7 @@ final class AppModel {
   private var roster = Roster([])
   private(set) var workspaceSettings = Workspaces()
   private(set) var organizationPreferences = OrganizationPreferences()
+  private(set) var syncsSettings = true
   private(set) var isRefreshing = false
   private(set) var isConnecting = false
   private var connectionErrors: [UUID: any Error] = [:]
@@ -247,6 +250,7 @@ final class AppModel {
         connections = state.connections
         organizationPreferences = state.organizations
         synced = state.synced
+        syncsSettings = state.syncsSettings
       } catch {
         storageNotice = Notice(
           id: "storage", title: "Saved activity couldn't be loaded",
@@ -346,6 +350,11 @@ final class AppModel {
 
   func setShowsLineChanges(_ showsLineChanges: Bool) {
     workspaceSettings.showsLineChanges = showsLineChanges
+    persist()
+  }
+
+  func setSyncsSettings(_ syncsSettings: Bool) {
+    self.syncsSettings = syncsSettings
     persist()
   }
 
@@ -735,7 +744,7 @@ final class AppModel {
   }
 
   private func exchangeSettings() async {
-    guard let primary = connections.first else {
+    guard syncsSettings, let primary = connections.first else {
       syncNotice = nil
       return
     }
@@ -813,7 +822,7 @@ final class AppModel {
         at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
       let state = SavedState(
         workspaces: workspaceSettings, connections: connections,
-        organizations: organizationPreferences, synced: synced)
+        organizations: organizationPreferences, synced: synced, syncsSettings: syncsSettings)
       try JSONEncoder().encode(state).write(to: stateURL, options: .atomic)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stateURL.path)
       storageNotice = nil

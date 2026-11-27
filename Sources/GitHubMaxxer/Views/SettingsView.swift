@@ -231,6 +231,14 @@ private struct SettingsView: View {
         .labelsHidden().toggleStyle(.switch).controlSize(.small)
         .disabled(model.isPreview)
       }
+      LabeledContent("Sync settings with GitHub") {
+        Toggle(
+          "Sync settings with GitHub",
+          isOn: Binding(get: { model.syncsSettings }, set: { model.setSyncsSettings($0) })
+        )
+        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+        .disabled(model.isPreview)
+      }
       LabeledContent("Show lines changed") {
         Toggle(
           "Show lines changed",
