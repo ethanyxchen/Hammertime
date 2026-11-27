@@ -5,7 +5,7 @@ struct RepositoriesView: View {
   @Environment(AppModel.self) private var model
   let search: String
   @State private var selectedConnection: UUID?
-  @State private var picking: Set<String> = []
+  @State private var picking: [String: RepositoryScope] = [:]
 
   private var account: AccountConnection? {
     model.connections.first { $0.id == selectedConnection } ?? model.connections.first
@@ -112,6 +112,7 @@ struct RepositoriesView: View {
       Button("Authorize") {
         model.connectionDraft = ConnectionDraft(existing: account, signsIn: true)
       }
+      .accessibilityLabel("Authorize \(model.displayName(for: owner))")
       coveragePicker(
         owner, selection: account.scope.counts(owner) ? .all : .none, account: account,
         options: [.all, .none])
@@ -128,9 +129,9 @@ struct RepositoriesView: View {
       selection: Binding(
         get: { selection },
         set: { coverage in
-          let key = OrganizationPreferences.key(owner)
-          if coverage == .some { picking.insert(key) } else { picking.remove(key) }
           model.setCoverage(coverage, owner: owner, for: account.id)
+          picking[pickingKey(owner, account: account)] =
+            coverage == .some ? model.connections.first { $0.id == account.id }?.scope : nil
         })
     ) {
       ForEach(options, id: \.self) { coverage in Text(coverage.title).tag(coverage) }
@@ -140,8 +141,12 @@ struct RepositoriesView: View {
 
   private func coverage(of owner: String, account: AccountConnection) -> RepositoryScope.Coverage {
     let coverage = account.scope.coverage(of: owner, among: account.snapshot.visibleRepositories)
-    return coverage == .none && picking.contains(OrganizationPreferences.key(owner))
+    return coverage == .none && picking[pickingKey(owner, account: account)] == account.scope
       ? .some : coverage
+  }
+
+  private func pickingKey(_ owner: String, account: AccountConnection) -> String {
+    "\(account.id)/\(OrganizationPreferences.key(owner))"
   }
 
   private func owners(of account: AccountConnection) -> [String] {
@@ -154,8 +159,7 @@ struct RepositoriesView: View {
     }
     .values
     .filter { owner in
-      search.isEmpty || owner.localizedCaseInsensitiveContains(search)
-        || repositories.owned(by: owner).contains(where: matches)
+      named(owner) || repositories.owned(by: owner).contains(where: matches)
     }
     .sorted { first, second in
       rank(first) != rank(second)
@@ -169,12 +173,17 @@ struct RepositoriesView: View {
       account.snapshot.visibleRepositories.map { OrganizationPreferences.key($0.owner) })
     return model.hiddenOrganizations(of: account.id).filter {
       !visible.contains(OrganizationPreferences.key($0))
-        && (search.isEmpty || $0.localizedCaseInsensitiveContains(search))
+        && named($0)
     }
   }
 
   private func isYou(_ owner: String, account: AccountConnection) -> Bool {
     owner.caseInsensitiveCompare(account.profile.login) == .orderedSame
+  }
+
+  private func named(_ owner: String) -> Bool {
+    search.isEmpty || owner.localizedCaseInsensitiveContains(search)
+      || model.displayName(for: owner).localizedCaseInsensitiveContains(search)
   }
 
   private func matches(_ repository: Repository) -> Bool {
@@ -187,7 +196,6 @@ struct RepositoriesView: View {
     Binding {
       account.scope.includes(repository)
     } set: { selected in
-      picking.insert(OrganizationPreferences.key(repository.owner))
       var scope = account.scope
       if selected {
         scope.repositories.insert(repository.id)
@@ -195,6 +203,7 @@ struct RepositoriesView: View {
         scope.repositories.remove(repository.id)
       }
       model.setScope(scope, for: account.id)
+      picking[pickingKey(repository.owner, account: account)] = scope
     }
   }
 }

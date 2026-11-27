@@ -238,6 +238,13 @@ struct ActivityTests {
     #expect(everything.repositories == ["app", "web"])
   }
 
+  @Test func leavingCountEverythingKeepsHiddenOrganizations() {
+    let available = [Repository(id: "app", nameWithOwner: "acme/app", isPrivate: true)]
+    let scope = RepositoryScope().covering("acme", .none, among: available, hidden: ["Secret"])
+    #expect(scope.counts("secret"))
+    #expect(!scope.counts("acme"))
+  }
+
   @Test func allRepositoriesAndEmptySelectionDiffer() {
     let repo = Repository(id: "1", nameWithOwner: "acme/app", isPrivate: true)
     #expect(RepositoryScope().includes(repo))
