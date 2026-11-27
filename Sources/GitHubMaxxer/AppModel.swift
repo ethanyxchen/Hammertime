@@ -205,7 +205,7 @@ final class AppModel {
   private(set) var isRefreshing = false
   private(set) var isConnecting = false
   private var connectionErrors: [UUID: any Error] = [:]
-  private(set) var hiddenOrganizations: [UUID: Int] = [:]
+  private var hiddenOrganizations: [UUID: [String: String]] = [:]
   private var storageNotice: Notice?
   private var syncNotice: Notice?
   private(set) var now = Date.now
@@ -369,14 +369,14 @@ final class AppModel {
     persist()
   }
 
-  func setCounted(_ counted: Bool, owner: String, for id: UUID) {
+  func setCoverage(_ coverage: RepositoryScope.Coverage, owner: String, for id: UUID) {
     guard let account = connections.first(where: { $0.id == id }) else { return }
     setScope(
-      account.scope.counting(owner, counted, among: account.snapshot.visibleRepositories), for: id)
+      account.scope.covering(owner, coverage, among: account.snapshot.visibleRepositories), for: id)
   }
 
   func stopCounting(_ owner: String) {
-    for account in connections { setCounted(false, owner: owner, for: account.id) }
+    for account in connections { setCoverage(.none, owner: owner, for: account.id) }
   }
 
   func renameOrganization(_ organization: String, to name: String) {
@@ -422,16 +422,44 @@ final class AppModel {
           detail: error.localizedDescription, signIn: signIn ? account.id : nil))
       if signIn { return notices }
     }
-    let hidden = hiddenOrganizations[account.id, default: 0]
-    if hidden > 0 {
+    let unseen = unseenOrganizations(of: account)
+    if !unseen.isEmpty {
       notices.append(
         Notice(
           id: "hidden-\(account.id)",
-          title:
-            "Hammertime can't see \(hidden) \(hidden == 1 ? "organization" : "organizations")",
-          detail: "Sign in again and authorize them on GitHub.", signIn: account.id))
+          title: "Hammertime can't see \(unseen.formatted())",
+          detail: "Sign in again and authorize \(unseen.count == 1 ? "it" : "them") on GitHub.",
+          signIn: account.id))
     }
     return notices
+  }
+
+  func hiddenOrganizations(of id: UUID) -> [String] {
+    hiddenOrganizations[id, default: [:]].values
+      .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+  }
+
+  func unseenOrganizations(of account: AccountConnection) -> [String] {
+    hiddenOrganizations(of: account.id).filter(account.scope.counts)
+  }
+
+  nonisolated private static func hiddenOrganizations(
+    from client: GitHubClient, known: [String: String]
+  ) async -> [String: String]? {
+    guard let ids = try? await client.singleSignOnHiddenOrganizations() else { return nil }
+    var logins: [String: String] = [:]
+    for id in ids {
+      if let login = known[id] {
+        logins[id] = login
+      } else {
+        logins[id] = try? await client.organization(id)
+      }
+    }
+    return logins
+  }
+
+  private var knownOrganizations: [String: String] {
+    hiddenOrganizations.values.reduce(into: [:]) { $0.merge($1) { first, _ in first } }
   }
 
   private static func needsSignIn(_ error: any Error) -> Bool {
@@ -488,7 +516,8 @@ final class AppModel {
     let fetchedAt = Date.now
     async let pulls = client.mergedPullRequests(
       from: Activity.historyInterval(endingAt: fetchedAt).start, through: fetchedAt)
-    async let hidden = try? client.singleSignOnHiddenOrganizations()
+    let organizations = knownOrganizations
+    async let hidden = Self.hiddenOrganizations(from: client, known: organizations)
     let profile = try await client.profile()
     if let existing = connections.first(where: { $0.id == id }), existing.profile.id != profile.id {
       throw ConnectionError.wrongAccount(existing.profile.login)
@@ -536,9 +565,10 @@ final class AppModel {
     isRefreshing = true
     defer { isRefreshing = false }
     let started = Date.now
+    let organizations = knownOrganizations
     let results = await fetch { client, account in
       let interval = account.snapshot.refreshInterval(endingAt: started)
-      async let hidden = try? client.singleSignOnHiddenOrganizations()
+      async let hidden = Self.hiddenOrganizations(from: client, known: organizations)
       let pulls = try await client.mergedPullRequests(from: interval.start, through: interval.end)
       let known = Set(account.snapshot.pullRequests.map(\.id))
       let arrived = pulls.filter { !known.contains($0.id) }.map(\.repository)

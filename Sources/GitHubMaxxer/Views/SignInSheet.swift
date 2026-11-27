@@ -91,12 +91,12 @@ struct SignInSheet: View {
         }
         step = .access
         try await model.connect(token: token, replacing: connection.id)
-        let hidden = model.hiddenOrganizations[connection.id, default: 0]
-        if hidden == 0 {
+        let unseen = model.unseenOrganizations(of: connection)
+        if unseen.isEmpty {
           dismiss()
         } else {
           error =
-            "GitHub still hides \(hidden == 1 ? "1 organization" : "\(hidden) organizations") from this sign-in. Try again, and click Authorize next to each organization when GitHub lists it."
+            "GitHub still hides \(unseen.formatted()) from this sign-in. Try again, and click Authorize next to each organization when GitHub lists it."
         }
       } catch is CancellationError {
       } catch {

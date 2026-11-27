@@ -147,7 +147,7 @@ struct AppModelTests {
     #expect(reloaded.goals(for: .all) == Goals(daily: 2))
     #expect(reloaded.progress(for: .month).target == 40)
 
-    reloaded.setCounted(true, owner: "acme", for: connection.id)
+    reloaded.setCoverage(.all, owner: "acme", for: connection.id)
     #expect(reloaded.goals(for: .all) == Goals(daily: 6))
     #expect(reloaded.progress(for: .week, filter: .organization("acme")).target == 20)
   }
@@ -210,7 +210,7 @@ struct AppModelTests {
     #expect(reloaded.progress(for: .day).count == 1)
     #expect(reloaded.displayName(for: "acme") == "Acme Inc")
     reloaded.renameOrganization("acme", to: " ")
-    reloaded.setCounted(true, owner: "beta", for: connection.id)
+    reloaded.setCoverage(.all, owner: "beta", for: connection.id)
     #expect(Set(reloaded.pullRequests(for: .all)) == Set(pulls))
     #expect(reloaded.displayName(for: "acme") == "acme")
     #expect(reloaded.sidebarOrganizations == ["beta", "acme"])
@@ -239,11 +239,11 @@ struct AppModelTests {
     #expect(model.workspaces == [.organization("acme")])
     #expect(model.goals(for: .all) == Goals(daily: 1))
 
-    model.setCounted(true, owner: sample.profile.login.uppercased(), for: connection.id)
+    model.setCoverage(.all, owner: sample.profile.login.uppercased(), for: connection.id)
     #expect(model.workspaces == [.personal, .organization("acme")])
     #expect(model.goals(for: .all) == Goals(daily: 3))
 
-    model.setCounted(false, owner: sample.profile.login, for: connection.id)
+    model.setCoverage(.none, owner: sample.profile.login, for: connection.id)
     #expect(model.workspaces == [.organization("acme")])
     var scope = try #require(model.connections.first).scope
     scope.repositories.insert(repositories[1].id)
@@ -305,7 +305,7 @@ struct AppModelTests {
     model.stopCounting("ACME")
     #expect(model.sidebarOrganizations == ["beta"])
     model.setPinned(false, organization: "BETA")
-    model.setCounted(true, owner: "Acme", for: connection.id)
+    model.setCoverage(.all, owner: "Acme", for: connection.id)
     model.renameOrganization("BeTa", to: "")
     #expect(!model.isPinned("beta"))
     #expect(model.displayName(for: "beta") == "beta")
@@ -568,13 +568,40 @@ struct AppModelTests {
     let notice = try #require(model.notices.first)
     #expect(model.notices.count == 1)
     #expect(notice.signIn == id)
-    #expect(notice.title.contains("can't see 2 organizations"))
+    #expect(notice.title == "Hammertime can't see Acme and beta")
 
     model.show(notice)
 
     let draft = try #require(model.connectionDraft)
     #expect(draft.signsIn)
     #expect(draft.existing?.id == id)
+  }
+
+  @Test func onlyCountedOrganizationsHiddenBySingleSignOnNeedAttention() async throws {
+    let (model, id) = try refreshingModel(
+      SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false, owners: ["acme"]))
+    await model.refresh()
+    #expect(model.hiddenOrganizations(of: id) == ["Acme", "beta"])
+    #expect(model.notices.map(\.title) == ["Hammertime can't see Acme"])
+
+    let (untracked, _) = try refreshingModel(
+      SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false))
+    await untracked.refresh()
+    #expect(untracked.notices.isEmpty)
+  }
+
+  @Test func aFailedOrganizationLookupKeepsTheOthers() async throws {
+    let (model, id) = try refreshingModel(MissingOrganizationProtocol.self)
+    await model.refresh()
+    #expect(model.hiddenOrganizations(of: id) == ["Acme"])
+  }
+
+  @Test func hiddenOrganizationsAreNamedOnce() async throws {
+    let (model, id) = try refreshingModel(CountingSingleSignOnProtocol.self)
+    await model.refresh()
+    await model.refresh()
+    #expect(model.hiddenOrganizations(of: id) == ["Acme", "beta"])
+    #expect(CountingSingleSignOnProtocol.lookups.values.count == 2)
   }
 
   @Test func goingOfflineKeepsTheHiddenOrganizationsNotice() async throws {
@@ -586,11 +613,16 @@ struct AppModelTests {
     #expect(model.notices.map(\.signIn) == [nil, id])
   }
 
-  private func refreshingModel(_ protocolClass: AnyClass) throws -> (AppModel, UUID) {
+  private func refreshingModel(
+    _ protocolClass: AnyClass, scope: RepositoryScope = RepositoryScope()
+  )
+    throws -> (AppModel, UUID)
+  {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let url = directory.appending(path: "state.json")
-    let connection = PreviewData.connections(now: .now)[0]
+    var connection = PreviewData.connections(now: .now)[0]
+    connection.scope = scope
     try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
     let store = TestCredentials()
     try store.save("test-credential", for: connection.id)
@@ -949,24 +981,55 @@ private class SingleSignOnProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
-    let isRepositories = request.url!.path() == "/user/repos"
+    let (status, headers, body): (Int, [String: String]?, String) =
+      switch request.url!.path() {
+      case "/user/repos":
+        (200, ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"], "[]")
+      case "/organizations/21955855":
+        (
+          403,
+          [
+            "X-GitHub-SSO": "required; url=https://github.com/orgs/Acme/sso?authorization_request=a"
+          ], "{}"
+        )
+      case "/organizations/20582480": (200, nil, #"{"login":"beta"}"#)
+      default:
+        (
+          200, nil,
+          #"{"data":{"search":{"issueCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}"#
+        )
+      }
     client?.urlProtocol(
       self,
       didReceive: HTTPURLResponse(
-        url: request.url!, statusCode: 200, httpVersion: nil,
-        headerFields: isRepositories
-          ? ["X-GitHub-SSO": "partial-results; organizations=21955855,20582480"] : nil)!,
+        url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!,
       cacheStoragePolicy: .notAllowed)
-    client?.urlProtocol(
-      self,
-      didLoad: Data(
-        (isRepositories
-          ? "[]"
-          : #"{"data":{"search":{"issueCount":0,"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}"#)
-          .utf8))
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}
+}
+
+private final class MissingOrganizationProtocol: SingleSignOnProtocol, @unchecked Sendable {
+  override func startLoading() {
+    guard request.url!.path() == "/organizations/20582480" else { return super.startLoading() }
+    client?.urlProtocol(
+      self,
+      didReceive: HTTPURLResponse(
+        url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data("{}".utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+}
+
+private final class CountingSingleSignOnProtocol: SingleSignOnProtocol, @unchecked Sendable {
+  static let lookups = LockedValues<String>()
+  override func startLoading() {
+    let path = request.url!.path()
+    if path.hasPrefix("/organizations/") { Self.lookups.append(path) }
+    super.startLoading()
+  }
 }
 
 private final class FlakySingleSignOnProtocol: SingleSignOnProtocol, @unchecked Sendable {
