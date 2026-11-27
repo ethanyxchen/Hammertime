@@ -2,13 +2,13 @@ import GitHubMaxxerCore
 import SwiftUI
 
 enum SettingsPane: CaseIterable {
-  case tracking, accounts, general
+  case tracking, accounts, app
 
   var title: String {
     switch self {
     case .tracking: "Tracking"
     case .accounts: "Accounts"
-    case .general: "General"
+    case .app: "App"
     }
   }
 
@@ -16,7 +16,7 @@ enum SettingsPane: CaseIterable {
     switch self {
     case .tracking: "chart.bar.xaxis"
     case .accounts: "person.crop.circle"
-    case .general: "gearshape"
+    case .app: "gearshape"
     }
   }
 }
@@ -111,7 +111,7 @@ private struct SettingsView: View {
       switch pane {
       case .tracking: tracking
       case .accounts: accounts
-      case .general: general
+      case .app: app
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -220,8 +220,8 @@ private struct SettingsView: View {
     }
   }
 
-  @ViewBuilder private var general: some View {
-    SettingsSection("General") {
+  @ViewBuilder private var app: some View {
+    SettingsSection("Startup and sync") {
       SettingsToggle(
         "Open at login",
         isOn: Binding(
