@@ -725,6 +725,33 @@ struct AppModelTests {
     #expect(model.hammer(for: banner) == (smashes ? nil : banner.slam))
   }
 
+  @Test func aLaterHugeMergeSmashesAfterAnEarlierOne() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "state.json")
+    let connection = PreviewData.connections(now: .now)[0]
+    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+    let store = TestCredentials()
+    try store.save("huge-first", for: connection.id)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MergedProtocol.self]
+    let model = AppModel(
+      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+    model.setFocused(true)
+    await model.refresh()
+    let first = try #require(model.landing?.slam)
+    #expect(model.smash == first)
+
+    model.setFocused(false)
+    try store.save("huge-later", for: connection.id)
+    await model.refresh()
+
+    let banner = try #require(model.banner)
+    #expect(banner.slam != first)
+    #expect(model.smash == banner.slam)
+  }
+
   @Test func mergesWhileUnfocusedWaitInTheBannerUntilFocus() async throws {
     let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

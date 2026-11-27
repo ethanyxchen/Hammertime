@@ -273,10 +273,9 @@ final class AppModel {
     ProcessInfo.processInfo.arguments.contains("--smash-every-merge") ? 0 : 100_000
 
   var smash: Date? {
-    [landing, held].compactMap { $0 }.first { landing in
-      landing.slam != nil
-        && pullRequests(in: landing).contains { $0.changedLines > Self.smashingLines }
-    }?.slam
+    [landing, held].compactMap { $0 }
+      .filter { pullRequests(in: $0).contains { $0.changedLines > Self.smashingLines } }
+      .compactMap(\.slam).max()
   }
 
   func hammer(for landing: Landing?) -> Date? {
