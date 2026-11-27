@@ -69,6 +69,8 @@ public struct MergedPullRequest: Codable, Sendable, Hashable, Identifiable {
     self.deletions = deletions
     self.repository = repository
   }
+
+  public var changedLines: Int { additions + deletions }
 }
 
 public struct GitHubSnapshot: Codable, Sendable {

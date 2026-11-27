@@ -10,6 +10,10 @@ enum Slam {
   static let shatter = release + 0.36
   static let reveal = Landing.celebration
   static let impactHeight = 0.55
+
+  static func seed(_ slam: Date?) -> Int {
+    slam.map { Int($0.timeIntervalSince1970 * 1000) % 9973 } ?? 0
+  }
 }
 
 struct Choreography<Content: View>: View {
@@ -35,26 +39,27 @@ struct Choreography<Content: View>: View {
 
 struct HammerSlam: View {
   let landing: Landing?
+  let hammer: Date?
 
   var body: some View {
-    HammerShatter(landing: landing).overlay { HammerSwing(landing: landing, overscan: 1) }
+    HammerShatter(landing: landing).overlay { HammerSwing(slam: hammer, overscan: 1) }
   }
 }
 
 struct HammerSwing: View {
-  let landing: Landing?
+  let slam: Date?
   let overscan: Double
 
   var body: some View {
-    Choreography(start: landing?.slam, duration: Swing.timeline.duration) { time in
+    Choreography(start: slam, duration: Swing.timeline.duration) { time in
       if time > Swing.entrance, time < Swing.timeline.duration {
         let swing = Swing.timeline.value(time: time)
         Sledgehammer(swing: swing, overscan: overscan).opacity(swing.opacity)
       }
     }
-    .task(id: landing?.slam) {
-      guard let date = landing?.slam else { return }
-      Soundtrack.shared.play(elapsed: -date.timeIntervalSinceNow)
+    .task(id: slam) {
+      guard let slam else { return }
+      Soundtrack.shared.play(elapsed: -slam.timeIntervalSinceNow)
     }
     .task { _ = SledgehammerRig.shared }
     .allowsHitTesting(false)
@@ -69,7 +74,7 @@ struct HammerShatter: View {
   var body: some View {
     Choreography(start: landing?.slam, duration: Shatter.duration) { time in
       Shatter(
-        time: time, seed: seed,
+        time: time, seed: Slam.seed(landing?.slam),
         layers: page.flatMap { $0.date == landing?.slam ? $0.layers : nil })
     }
     .background {
@@ -85,9 +90,26 @@ struct HammerShatter: View {
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
+}
 
-  private var seed: Int {
-    landing?.slam.map { Int($0.timeIntervalSince1970 * 1000) % 9973 } ?? 0
+struct ScreenCracks: View {
+  static let duration = Shatter.duration
+  let slam: Date
+
+  var body: some View {
+    Choreography(start: slam, duration: Self.duration) { time in
+      Canvas { context, size in
+        guard time >= Slam.release, time < Self.duration else { return }
+        let web = Web(size: size, seed: Slam.seed(slam))
+        context.opacity = Shatter.opacity(at: time)
+        context.translateBy(x: 0, y: size.height * Shatter.shake.value(time: time))
+        web.cracks(in: context, extent: web.extent(at: time))
+        web.flash(in: context, size: size, time: time)
+      }
+    }
+    .overlay { HammerSwing(slam: slam, overscan: 1) }
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
   }
 }
 
@@ -193,10 +215,9 @@ private struct PageCapture: NSViewRepresentable {
 }
 
 private struct Shatter: View {
-  private static let growth = 0.18
   static let fade = 0.35
   static let duration = Slam.reveal + fade
-  @MainActor private static let shake = KeyframeTimeline(initialValue: 0.0) {
+  @MainActor static let shake = KeyframeTimeline(initialValue: 0.0) {
     KeyframeTrack {
       LinearKeyframe(0, duration: Slam.release)
       LinearKeyframe(0.035, duration: 0.03)
@@ -214,27 +235,48 @@ private struct Shatter: View {
   var body: some View {
     Canvas { context, size in
       let bounds = CGRect(origin: .zero, size: size)
-      let center = CGPoint(x: size.width / 2, y: size.height * Slam.impactHeight)
-      let reach = hypot(
-        max(center.x, size.width - center.x), max(center.y, size.height - center.y))
-      let web = Web(center: center, reach: reach, seed: seed)
+      let web = Web(size: size, seed: seed)
       guard let layers, time >= Slam.impact, time < Self.duration else { return }
-      let growth = min(max((time - Slam.release) / Self.growth, 0), 1)
       context.translateBy(x: 0, y: size.height * Self.shake.value(time: time))
       var backdrop = context
-      backdrop.opacity = 1 - min(max((time - Slam.reveal) / Self.fade, 0), 1)
+      backdrop.opacity = Self.opacity(at: time)
       backdrop.draw(context.resolve(Image(decorative: layers.backdrop, scale: 1)), in: bounds)
       web.shards(
-        in: &context, time: time - Slam.shatter,
-        extent: reach * Web.rings.last! * (1 - pow(1 - growth, 3)),
+        in: &context, time: time - Slam.shatter, extent: web.extent(at: time),
         content: context.resolve(Image(decorative: layers.content, scale: 1)), bounds: bounds)
-      flash(in: &context, at: center, radius: min(size.width, size.height) * 0.18)
+      web.flash(in: context, size: size, time: time)
     }
   }
 
-  private func flash(in context: inout GraphicsContext, at center: CGPoint, radius: Double) {
+  static func opacity(at time: Double) -> Double {
+    1 - min(max((time - Slam.reveal) / fade, 0), 1)
+  }
+}
+
+private struct Web {
+  static let rings = [0.01, 0.022, 0.04, 0.065, 0.1, 0.15, 0.22, 0.31, 0.43, 0.58, 0.78, 1.15]
+  private static let growth = 0.18
+  let center: CGPoint
+  let reach: Double
+  let seed: Int
+
+  init(size: CGSize, seed: Int) {
+    center = CGPoint(x: size.width / 2, y: size.height * Slam.impactHeight)
+    reach = hypot(max(center.x, size.width - center.x), max(center.y, size.height - center.y))
+    self.seed = seed
+  }
+
+  private var spokes: Int { 12 + Int(random(0, 9) * 6) }
+
+  func extent(at time: Double) -> Double {
+    let growth = min(max((time - Slam.release) / Self.growth, 0), 1)
+    return reach * Self.rings.last! * (1 - pow(1 - growth, 3))
+  }
+
+  func flash(in context: GraphicsContext, size: CGSize, time: Double) {
     let fade = 1 - max(time - Slam.release, 0) / 0.25
     guard fade > 0, fade <= 1 else { return }
+    let radius = min(size.width, size.height) * 0.18
     context.fill(
       Path(
         ellipseIn: CGRect(
@@ -243,15 +285,19 @@ private struct Shatter: View {
         Gradient(colors: [.white.opacity(fade), .clear]), center: center, startRadius: 0,
         endRadius: radius))
   }
-}
 
-private struct Web {
-  static let rings = [0.01, 0.022, 0.04, 0.065, 0.1, 0.15, 0.22, 0.31, 0.43, 0.58, 0.78, 1.15]
-  let center: CGPoint
-  let reach: Double
-  let seed: Int
+  func cracks(in context: GraphicsContext, extent: Double) {
+    for ring in Self.rings.indices {
+      for spoke in 0..<spokes where extent >= distance(vertex(spoke, ring)) {
+        crack(outline(spoke, ring), in: context)
+      }
+    }
+  }
 
-  private var spokes: Int { 12 + Int(random(0, 9) * 6) }
+  private func crack(_ outline: Path, in context: GraphicsContext) {
+    context.stroke(outline, with: .color(.black.opacity(0.3)), lineWidth: 2.2)
+    context.stroke(outline, with: .color(.white.opacity(0.85)), lineWidth: 1)
+  }
 
   func shards(
     in context: inout GraphicsContext, time: Double, extent: Double,
@@ -301,10 +347,7 @@ private struct Web {
             startPoint: CGPoint(x: frame.minX, y: frame.minY),
             endPoint: CGPoint(x: frame.maxX, y: frame.maxY)))
       }
-      if pose.cracked {
-        piece.stroke(outline, with: .color(.black.opacity(0.3)), lineWidth: 2.2)
-        piece.stroke(outline, with: .color(.white.opacity(0.85)), lineWidth: 1)
-      }
+      if pose.cracked { crack(outline, in: piece) }
     }
   }
 

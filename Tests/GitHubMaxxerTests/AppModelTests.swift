@@ -683,7 +683,8 @@ struct AppModelTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let url = directory.appending(path: "state.json")
     var connection = PreviewData.connections(now: .now)[0]
-    connection.snapshot = GitHubSnapshot(repositories: [], pullRequests: [], fetchedAt: .distantPast)
+    connection.snapshot = GitHubSnapshot(
+      repositories: [], pullRequests: [], fetchedAt: .distantPast)
     try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
     let store = TestCredentials()
     try store.save("test-credential", for: connection.id)
@@ -698,6 +699,57 @@ struct AppModelTests {
     #expect(model.pullRequests.contains { $0.id == "fresh-test-credential" })
     #expect(model.landing == nil)
     #expect(model.banner == nil)
+  }
+
+  @Test(arguments: [("huge-credential", true), ("test-credential", false)])
+  func onlyMergesOverAHundredThousandLinesSmashTheScreen(token: String, smashes: Bool)
+    async throws
+  {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "state.json")
+    let connection = PreviewData.connections(now: .now)[0]
+    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+    let store = TestCredentials()
+    try store.save(token, for: connection.id)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MergedProtocol.self]
+    let model = AppModel(
+      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+
+    await model.refresh()
+
+    let banner = try #require(model.banner)
+    #expect(model.smash == (smashes ? banner.slam : nil))
+    #expect(model.hammer(for: banner) == (smashes ? nil : banner.slam))
+  }
+
+  @Test func aLaterHugeMergeSmashesAfterAnEarlierOne() async throws {
+    let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "state.json")
+    let connection = PreviewData.connections(now: .now)[0]
+    try JSONEncoder().encode(FixtureState(connections: [connection])).write(to: url)
+    let store = TestCredentials()
+    try store.save("huge-first", for: connection.id)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MergedProtocol.self]
+    let model = AppModel(
+      stateURL: url, credentials: store, session: URLSession(configuration: configuration))
+    model.setFocused(true)
+    await model.refresh()
+    let first = try #require(model.landing?.slam)
+    #expect(model.smash == first)
+
+    model.setFocused(false)
+    try store.save("huge-later", for: connection.id)
+    await model.refresh()
+
+    let banner = try #require(model.banner)
+    #expect(banner.slam != first)
+    #expect(model.smash == banner.slam)
   }
 
   @Test func mergesWhileUnfocusedWaitInTheBannerUntilFocus() async throws {
@@ -947,7 +999,7 @@ private final class MergedProtocol: URLProtocol, @unchecked Sendable {
         Data(
           ((try? requestBody(request)["query"] as? String)?.contains("search(query") == true
             ? """
-            {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/acme/app/pull/1","mergedAt":"\(mergedAt)","additions":5,"deletions":1,"repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
+            {"data":{"search":{"issueCount":1,"nodes":[{"id":"fresh-\(token)","title":"Slam","number":1,"url":"https://github.com/acme/app/pull/1","mergedAt":"\(mergedAt)","additions":\(token.hasPrefix("huge") ? 100_000 : 5),"deletions":1,"repository":{"id":"r1","nameWithOwner":"acme/app","isPrivate":false,"ownerKind":{"__typename":"User"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}
             """
             : """
             {"data":{"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}

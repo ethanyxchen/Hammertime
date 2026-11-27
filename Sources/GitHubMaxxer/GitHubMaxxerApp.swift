@@ -181,10 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   let softwareUpdate = SoftwareUpdate()
   private let telemetry = Telemetry()
   private var banner: MergeBanner?
+  private var smash: ScreenSmash?
   private var notifier: NoticeNotifier?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     banner = MergeBanner(model: model)
+    smash = ScreenSmash(model: model)
     model.startRefreshing()
     if ProcessInfo.processInfo.arguments.contains("--verify-github") {
       Task {
