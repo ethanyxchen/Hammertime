@@ -96,7 +96,7 @@ struct SignInSheet: View {
           dismiss()
         } else {
           error =
-            "GitHub still hides \(unseen.map(model.displayName).formatted()) from this sign-in. Try again, and click Authorize next to each organization when GitHub lists it."
+            "GitHub still hides \(unseen.formatted()) from this sign-in. Try again, and click Authorize next to each organization when GitHub lists it."
         }
       } catch is CancellationError {
       } catch {

@@ -581,13 +581,27 @@ struct AppModelTests {
     let (model, id) = try refreshingModel(
       SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false, owners: ["acme"]))
     await model.refresh()
-    #expect(model.hiddenOrganizations[id] == ["Acme", "beta"])
+    #expect(model.hiddenOrganizations(of: id) == ["Acme", "beta"])
     #expect(model.notices.map(\.title) == ["Hammertime can't see Acme"])
 
     let (untracked, _) = try refreshingModel(
       SingleSignOnProtocol.self, scope: RepositoryScope(allRepositories: false))
     await untracked.refresh()
     #expect(untracked.notices.isEmpty)
+  }
+
+  @Test func aFailedOrganizationLookupKeepsTheOthers() async throws {
+    let (model, id) = try refreshingModel(MissingOrganizationProtocol.self)
+    await model.refresh()
+    #expect(model.hiddenOrganizations(of: id) == ["Acme"])
+  }
+
+  @Test func hiddenOrganizationsAreNamedOnce() async throws {
+    let (model, id) = try refreshingModel(CountingSingleSignOnProtocol.self)
+    await model.refresh()
+    await model.refresh()
+    #expect(model.hiddenOrganizations(of: id) == ["Acme", "beta"])
+    #expect(CountingSingleSignOnProtocol.lookups.values.count == 2)
   }
 
   @Test func goingOfflineKeepsTheHiddenOrganizationsNotice() async throws {
@@ -994,6 +1008,28 @@ private class SingleSignOnProtocol: URLProtocol, @unchecked Sendable {
     client?.urlProtocolDidFinishLoading(self)
   }
   override func stopLoading() {}
+}
+
+private final class MissingOrganizationProtocol: SingleSignOnProtocol, @unchecked Sendable {
+  override func startLoading() {
+    guard request.url!.path() == "/organizations/20582480" else { return super.startLoading() }
+    client?.urlProtocol(
+      self,
+      didReceive: HTTPURLResponse(
+        url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!,
+      cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data("{}".utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+}
+
+private final class CountingSingleSignOnProtocol: SingleSignOnProtocol, @unchecked Sendable {
+  static let lookups = LockedValues<String>()
+  override func startLoading() {
+    let path = request.url!.path()
+    if path.hasPrefix("/organizations/") { Self.lookups.append(path) }
+    super.startLoading()
+  }
 }
 
 private final class FlakySingleSignOnProtocol: SingleSignOnProtocol, @unchecked Sendable {

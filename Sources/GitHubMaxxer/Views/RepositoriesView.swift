@@ -113,7 +113,7 @@ struct RepositoriesView: View {
   private func organizationsMenu(_ account: AccountConnection) -> some View {
     let owners = owners(of: account)
     let visible = Set(owners.map(OrganizationPreferences.key))
-    let hidden = model.hiddenOrganizations[account.id, default: []].filter {
+    let hidden = model.hiddenOrganizations(of: account.id).filter {
       !visible.contains(OrganizationPreferences.key($0))
     }
     let counted = (owners + hidden).count(where: account.scope.counts)

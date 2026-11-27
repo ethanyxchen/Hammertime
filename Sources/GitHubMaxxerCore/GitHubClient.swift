@@ -107,16 +107,12 @@ public struct GitHubClient: Sendable {
         .map({ $0.trimmingCharacters(in: .whitespaces) })
         .first(where: { $0.hasPrefix(field) })
     else { return [] }
-    let ids = organizations.dropFirst(field.count).split(separator: ",")
-    return try await withThrowingTaskGroup { group in
-      for id in ids { group.addTask { try await organization(id) } }
-      var logins: [String] = []
-      for try await login in group { logins.append(login) }
-      return logins.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    }
+    return organizations.dropFirst(field.count).split(separator: ",")
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
   }
 
-  private func organization(_ id: Substring) async throws -> String {
+  public func organization(_ id: String) async throws -> String {
     let (data, response) = try await request("organizations/\(id)")
     if let login = response.value(forHTTPHeaderField: "X-GitHub-SSO")?
       .firstMatch(of: /\/orgs\/([^\/]+)\/sso/)?.1

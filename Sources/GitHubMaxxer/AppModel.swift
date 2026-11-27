@@ -205,7 +205,7 @@ final class AppModel {
   private(set) var isRefreshing = false
   private(set) var isConnecting = false
   private var connectionErrors: [UUID: any Error] = [:]
-  private(set) var hiddenOrganizations: [UUID: [String]] = [:]
+  private var hiddenOrganizations: [UUID: [String: String]] = [:]
   private var storageNotice: Notice?
   private var syncNotice: Notice?
   private(set) var now = Date.now
@@ -427,15 +427,39 @@ final class AppModel {
       notices.append(
         Notice(
           id: "hidden-\(account.id)",
-          title: "Hammertime can't see \(unseen.map(displayName).formatted())",
+          title: "Hammertime can't see \(unseen.formatted())",
           detail: "Sign in again and authorize \(unseen.count == 1 ? "it" : "them") on GitHub.",
           signIn: account.id))
     }
     return notices
   }
 
+  func hiddenOrganizations(of id: UUID) -> [String] {
+    hiddenOrganizations[id, default: [:]].values
+      .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+  }
+
   func unseenOrganizations(of account: AccountConnection) -> [String] {
-    hiddenOrganizations[account.id, default: []].filter(account.scope.counts)
+    hiddenOrganizations(of: account.id).filter(account.scope.counts)
+  }
+
+  nonisolated private static func hiddenOrganizations(
+    from client: GitHubClient, known: [String: String]
+  ) async -> [String: String]? {
+    guard let ids = try? await client.singleSignOnHiddenOrganizations() else { return nil }
+    var logins: [String: String] = [:]
+    for id in ids {
+      if let login = known[id] {
+        logins[id] = login
+      } else {
+        logins[id] = try? await client.organization(id)
+      }
+    }
+    return logins
+  }
+
+  private var knownOrganizations: [String: String] {
+    hiddenOrganizations.values.reduce(into: [:]) { $0.merge($1) { first, _ in first } }
   }
 
   private static func needsSignIn(_ error: any Error) -> Bool {
@@ -492,7 +516,8 @@ final class AppModel {
     let fetchedAt = Date.now
     async let pulls = client.mergedPullRequests(
       from: Activity.historyInterval(endingAt: fetchedAt).start, through: fetchedAt)
-    async let hidden = try? client.singleSignOnHiddenOrganizations()
+    let organizations = knownOrganizations
+    async let hidden = Self.hiddenOrganizations(from: client, known: organizations)
     let profile = try await client.profile()
     if let existing = connections.first(where: { $0.id == id }), existing.profile.id != profile.id {
       throw ConnectionError.wrongAccount(existing.profile.login)
@@ -540,9 +565,10 @@ final class AppModel {
     isRefreshing = true
     defer { isRefreshing = false }
     let started = Date.now
+    let organizations = knownOrganizations
     let results = await fetch { client, account in
       let interval = account.snapshot.refreshInterval(endingAt: started)
-      async let hidden = try? client.singleSignOnHiddenOrganizations()
+      async let hidden = Self.hiddenOrganizations(from: client, known: organizations)
       let pulls = try await client.mergedPullRequests(from: interval.start, through: interval.end)
       let known = Set(account.snapshot.pullRequests.map(\.id))
       let arrived = pulls.filter { !known.contains($0.id) }.map(\.repository)
