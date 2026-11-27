@@ -165,8 +165,36 @@ public struct RepositoryScope: Codable, Sendable, Equatable {
     }
     scope.owners = scope.owners.filter { $0.caseInsensitiveCompare(owner) != .orderedSame }
     if counted { scope.owners.insert(owner) }
-    scope.repositories.subtract(
-      available.filter { $0.owner.caseInsensitiveCompare(owner) == .orderedSame }.map(\.id))
+    scope.repositories.subtract(available.owned(by: owner).map(\.id))
     return scope
+  }
+
+  public enum Coverage: CaseIterable, Sendable {
+    case all, some, none
+  }
+
+  public func coverage(of owner: String, among available: [Repository]) -> Coverage {
+    if counts(owner) { return .all }
+    return available.owned(by: owner).contains { repositories.contains($0.id) } ? .some : .none
+  }
+
+  public func covering(_ owner: String, _ coverage: Coverage, among available: [Repository])
+    -> RepositoryScope
+  {
+    switch coverage {
+    case .all: return counting(owner, true, among: available)
+    case .none: return counting(owner, false, among: available)
+    case .some:
+      guard counts(owner) else { return self }
+      var scope = counting(owner, false, among: available)
+      scope.repositories.formUnion(available.owned(by: owner).map(\.id))
+      return scope
+    }
+  }
+}
+
+extension [Repository] {
+  public func owned(by owner: String) -> [Repository] {
+    filter { $0.owner.caseInsensitiveCompare(owner) == .orderedSame }
   }
 }

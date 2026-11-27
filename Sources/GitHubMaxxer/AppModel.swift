@@ -369,14 +369,14 @@ final class AppModel {
     persist()
   }
 
-  func setCounted(_ counted: Bool, owner: String, for id: UUID) {
+  func setCoverage(_ coverage: RepositoryScope.Coverage, owner: String, for id: UUID) {
     guard let account = connections.first(where: { $0.id == id }) else { return }
     setScope(
-      account.scope.counting(owner, counted, among: account.snapshot.visibleRepositories), for: id)
+      account.scope.covering(owner, coverage, among: account.snapshot.visibleRepositories), for: id)
   }
 
   func stopCounting(_ owner: String) {
-    for account in connections { setCounted(false, owner: owner, for: account.id) }
+    for account in connections { setCoverage(.none, owner: owner, for: account.id) }
   }
 
   func renameOrganization(_ organization: String, to name: String) {
